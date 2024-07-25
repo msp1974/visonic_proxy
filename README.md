@@ -2,6 +2,9 @@
 
 This is currently in beta and not recommended to use.
 
+Alarm Monitor Port 5002
+Visonic Monitor Port 5003
+
 ## Run standalone
 
 Recommended to use a venv.  Requires Python 3.12
