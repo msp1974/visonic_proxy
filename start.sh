@@ -1,0 +1,1 @@
+docker run -p 5002:5002 -p 5001:5001 -p 8443:8443 -it visonic
