@@ -281,14 +281,17 @@ class MessageCoordinator:
             if pl31_message.type == VIS_ACK:
                 self.log_message("ACK received from %s %s", source, client_id, level=5)
                 self.log_message(
-                    "\x1b[1;32m%s ->\x1b[0m %s", source, data.hex(" "), level=5
+                    "\x1b[1;32m%s ACK ->\x1b[0m %s", source, data.hex(" "), level=5
                 )
             else:
                 self.log_message(
-                    "Message received from %s %s %s", source, pl31_message.panel_id, client_id, level=2
+                    "Message received from %s %s %s", source, pl31_message.panel_id, client_id, level=5
                 )
                 self.log_message(
-                    "\x1b[1;32m%s ->\x1b[0m %s", source, data.hex(" "), level=2
+                    "\x1b[1;32m%s RAW ->\x1b[0m %s", source, data.hex(" "), level=5
+                )
+                self.log_message(
+                    "\x1b[1;32m%s ->\x1b[0m %s", source, pl31_message.message.hex(" "), level=2
                 )
 
             # If message should be forwarded
@@ -306,7 +309,7 @@ class MessageCoordinator:
                     else:
                         dest_client_ids = [client_id]
 
-                    #_LOGGER.info("FORWARD DESTS: %s", dest_client_ids)
+                    _LOGGER.debug("FORWARD DESTS: %s %s", forwarder.destination, dest_client_ids)
 
                     for dest_client_id in dest_client_ids:
                         if pl31_message.type == VIS_ACK and dest_profile.track_acks and not self._ack_tracker.is_awaiting_ack(dest_profile.name, dest_client_id):
