@@ -5,7 +5,7 @@ import logging
 
 from .connections.manager import ConnectionProfile, ConnectionType, Forwarder
 
-from .const import ALARM_MONITOR_PORT,  MESSAGE_PORT, VISONIC_HOST, ConnectionName
+from .const import ALARM_MONITOR_PORT,  MESSAGE_PORT, VISONIC_HOST, VISONIC_MONITOR_PORT, ConnectionName
 from .manager import (
     MessageCoordinator,
     MessageCoordinatorStatus,
@@ -53,6 +53,7 @@ class Runner:
                     connect_with=ConnectionName.ALARM,
                     forwarders=[
                         Forwarder(destination=ConnectionName.ALARM),
+                        Forwarder(destination=ConnectionName.VISONIC_MONITOR, forward_to_all_connections=True, remove_pl31_wrapper=True)
                         # Add the below forwarder to get Visonic messages on Alarm Monitor connection
                         #Forwarder(
                         #    destination=ConnectionName.ALARM_MONITOR,
@@ -71,6 +72,15 @@ class Runner:
                         Forwarder(destination=ConnectionName.ALARM),
                     ],
                     # Remove this to get all ACKs.  This only sends ACKs for messages sent by this connection
+                    track_acks = True,
+                    preprocess=True,
+                ),
+                ConnectionProfile(
+                    name=ConnectionName.VISONIC_MONITOR,
+                    connection_type=ConnectionType.SERVER,
+                    host=self.my_ip,
+                    port=VISONIC_MONITOR_PORT,
+                    forwarders=[],
                     track_acks = True,
                     preprocess=True,
                 ),
