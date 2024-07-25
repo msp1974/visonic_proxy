@@ -21,6 +21,6 @@ Use start.sh to run the container
 
 ### Run as a HA addon
 
-Copy all files into addons local directory
+Copy all files into addons local directory in a visonic_proxy folder
 Refresh list of addons
 Install through Addons UI
