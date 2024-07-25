@@ -2,8 +2,8 @@
 
 This is currently in beta and not recommended to use.
 
-Alarm Monitor Port 5002
-Visonic Monitor Port 5003
+- Alarm Monitor Port 5002
+- Visonic Monitor Port 5003
 
 ## Run standalone
 
