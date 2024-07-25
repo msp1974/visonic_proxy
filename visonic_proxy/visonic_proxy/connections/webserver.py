@@ -11,13 +11,18 @@ from ssl import PROTOCOL_TLS_SERVER, SSLContext
 import requests
 import urllib3
 
-from ..const import PROXY_MODE, VISONIC_HOST
+from ..const import MESSAGE_LOG_LEVEL, PROXY_MODE, VISONIC_HOST
 
 urllib3.disable_warnings()
 
 _LOGGER = logging.getLogger(__name__)
 
 initial_requests: int = 0
+
+def log_message(message: str, *args, level: int = 5):
+        """Log message to logger if level."""
+        if MESSAGE_LOG_LEVEL >= level:
+            _LOGGER.info(message, *args)
 
 class RequestHandler(BaseHTTPRequestHandler):
     """HTTP handler"""
@@ -45,7 +50,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         except Exception:
             post_body = b""
 
-        _LOGGER.info("\x1b[1;32mAlarm HTTPS ->\x1b[0m %s", post_body.decode())
+        log_message("\x1b[1;32mAlarm HTTPS ->\x1b[0m %s", post_body.decode(), level=5)
         
 
         if PROXY_MODE:
@@ -70,7 +75,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 else:
                     resp = res.content
 
-                _LOGGER.info("\x1b[1;32mVisonic HTTPS ->\x1b[0m %s", resp.decode())
+                log_message("\x1b[1;32mVisonic HTTPS ->\x1b[0m %s", resp.decode(), level=5)
 
                 if not self.wfile.closed:
                     for k, v in res.headers.items():
@@ -86,7 +91,6 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 if not self.wfile.closed:
                     response = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
-                    _LOGGER.debug("RESPONSE: %s", response)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(response)

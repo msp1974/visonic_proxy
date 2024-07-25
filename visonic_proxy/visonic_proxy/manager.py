@@ -14,6 +14,7 @@ from .const import (
     ADM_CID,
     MESSAGE_LOG_LEVEL,
     VIS_ACK,
+    VIS_BBA,
     Commands,
     ConnectionName,
     MessagePriority,
@@ -274,7 +275,7 @@ class MessageCoordinator:
 
             # Track acks if set to do so
             profile = self._connection_manager.get_profile(source)
-            if profile.track_acks:
+            if profile.track_acks and pl31_message.type == VIS_BBA:
                 self._ack_tracker.add_awaiting_ack(source, client_id)
 
             if pl31_message.type == VIS_ACK:
@@ -305,11 +306,11 @@ class MessageCoordinator:
                     else:
                         dest_client_ids = [client_id]
 
-                    _LOGGER.info("FORWARD DESTS: %s", dest_client_ids)
+                    #_LOGGER.info("FORWARD DESTS: %s", dest_client_ids)
 
                     for dest_client_id in dest_client_ids:
                         if pl31_message.type == VIS_ACK and dest_profile.track_acks and not self._ack_tracker.is_awaiting_ack(dest_profile.name, dest_client_id):
-                            _LOGGER.info("Not forwarding ACK to %s %s as it is not waiting for it", dest_profile.name, dest_client_id)
+                            _LOGGER.debug("Not forwarding ACK to %s %s as it is not waiting for it", dest_profile.name, dest_client_id)
                             continue
 
                         self._ack_tracker.remove_awaiting_ack(dest_profile.name, dest_client_id)

@@ -14,7 +14,7 @@ LOG_FILES_TO_KEEP = 10
 # 3 same as 2 plus decoder info
 # 4 same as 3 plus structured message, paged messages
 # 5 same as 4 plus powerlink message decoded, ACKs, forwarding info, keep-alives
-MESSAGE_LOG_LEVEL = 5
+MESSAGE_LOG_LEVEL = 2
 
 
 VISONIC_HOST = "52.58.105.181"
