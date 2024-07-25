@@ -53,6 +53,12 @@ class Runner:
                     connect_with=ConnectionName.ALARM,
                     forwarders=[
                         Forwarder(destination=ConnectionName.ALARM),
+                        # Add the below forwarder to get Visonic messages on Alarm Monitor connection
+                        #Forwarder(
+                        #    destination=ConnectionName.ALARM_MONITOR,
+                        #    forward_to_all_connections=True,
+                        #    remove_pl31_wrapper=True,
+                        #)
                     ],
                     run_watchdog=True,
                 ),
@@ -64,6 +70,7 @@ class Runner:
                     forwarders=[
                         Forwarder(destination=ConnectionName.ALARM),
                     ],
+                    # Remove this to get all ACKs.  This only sends ACKs for messages sent by this connection
                     track_acks = True,
                     preprocess=True,
                 ),
