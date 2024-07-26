@@ -71,8 +71,8 @@ class Runner:
                     forwarders=[
                         Forwarder(destination=ConnectionName.ALARM),
                     ],
-                    # Remove this to get all ACKs.  This only sends ACKs for messages sent by this connection
-                    track_acks = True,
+                    ignore_incomming_acks=True,
+                    track_acks=True,
                     preprocess=True,
                 ),
                 ConnectionProfile(
@@ -81,7 +81,6 @@ class Runner:
                     host=self.my_ip,
                     port=VISONIC_MONITOR_PORT,
                     forwarders=[],
-                    track_acks = True,
                     preprocess=True,
                 ),
             ]

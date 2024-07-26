@@ -50,7 +50,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         except Exception:
             post_body = b""
 
-        log_message("\x1b[1;32mAlarm HTTPS ->\x1b[0m %s", post_body.decode(), level=5)
+        log_message("\x1b[1;36mAlarm HTTPS ->\x1b[0m %s", post_body.decode().replace("\n", ""), level=5)
         
 
         if PROXY_MODE:
@@ -75,7 +75,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 else:
                     resp = res.content
 
-                log_message("\x1b[1;32mVisonic HTTPS ->\x1b[0m %s", resp.decode(), level=5)
+                log_message("\x1b[1;36mVisonic HTTPS ->\x1b[0m %s", resp.decode().replace("\n", ""), level=5)
 
                 if not self.wfile.closed:
                     for k, v in res.headers.items():

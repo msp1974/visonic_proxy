@@ -43,6 +43,10 @@ class MessageTracker:
     def get_next(self):
         """Get next msg id."""
         return self.last_message_no + 1
+    
+    def get_current(self):
+        """Get current/last message id"""
+        return self.last_message_no
 
 @dataclass
 class AckTracker:
@@ -217,25 +221,27 @@ class MessageCoordinator:
     def message_preprocessor(self, msg: bytes) -> MessageItem:
         """Preprocessor for using injector to send message to alarm
 
-        Injector will send in format B0 24 or B0 35 32 00
-        1 - type of message B0 or STD
-        2- command
-        3+ params in 2 byte chunks
+        Messages can be injected in:
+         Full format - 0d b0 01 6a 00 43 a0 0a \ 0d a2 00 00 08 00 00 00 00 00 00 00 43 12 0a
+         Partial format - b0 01 6a 43 \ a2 00 00 08 00 00 00 00 00 00 00 43
+         Short format (for B0 messages only) - b0 6a / b0 17 18 24
         """
         if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
-            message = self._message_builer.build_powerlink31_message(
-                self._tracker.get_next(), msg.hex(" ")
-            )
+            
+            if msg[1:2] == b"\x02":
+                # Received ack message.  Use build_ack_message to ensure correct ACK type
+                message = self._message_builer.build_ack_message(self._tracker.get_current())
+            else:
+                message = self._message_builer.build_powerlink31_message(
+                    self._tracker.get_next(), msg.hex(" ")
+                )
             return message.msg_data
         
         # Else deal with shortcut commands
-        msg_type = msg[:1].hex()
-        command = msg[1:2].hex()
-        params = msg[2:].hex(" ")
-        last_item = msg[-1:].hex()
-
-        if msg_type == "b0":
-            if last_item != "43":
+        if msg[:1] == b"\xb0":
+            if msg[-1:] != b"\x43":
+                command = msg[1:2].hex()
+                params = msg[2:].hex(" ")
                 message = self._message_builer.build_b0_request(
                     self._tracker.get_next(), command, params
                 )
@@ -285,20 +291,16 @@ class MessageCoordinator:
             if profile.track_acks and pl31_message.type == VIS_BBA:
                 self._ack_tracker.add_awaiting_ack(source, client_id)
 
+            self.log_message(
+                    "\x1b[1;36m%s %s %s RAW ->\x1b[0m %s", source, pl31_message.panel_id, client_id, data.hex(" "), level=6
+                )
             if pl31_message.type == VIS_ACK:
-                self.log_message("ACK received from %s %s", source, client_id, level=5)
                 self.log_message(
-                    "\x1b[1;32m%s ACK ->\x1b[0m %s", source, data.hex(" "), level=5
+                    "\x1b[1;35m%s %s %s ACK ->\x1b[0m %s", source, pl31_message.panel_id, client_id, pl31_message.message.hex(" "), level=4
                 )
             else:
                 self.log_message(
-                    "Message received from %s %s %s", source, pl31_message.panel_id, client_id, level=5
-                )
-                self.log_message(
-                    "\x1b[1;32m%s RAW ->\x1b[0m %s", source, data.hex(" "), level=5
-                )
-                self.log_message(
-                    "\x1b[1;32m%s ->\x1b[0m %s", source, pl31_message.message.hex(" "), level=2
+                    "\x1b[1;32m%s %s %s ->\x1b[0m %s", source, pl31_message.panel_id, client_id, pl31_message.message.hex(" "), level=1
                 )
 
             # If message should be forwarded
@@ -319,18 +321,30 @@ class MessageCoordinator:
                     _LOGGER.debug("FORWARD DESTS: %s %s", forwarder.destination, dest_client_ids)
 
                     for dest_client_id in dest_client_ids:
+                        if pl31_message.type == VIS_ACK and profile.ignore_incomming_acks:
+                            self.log_message("\x1b[1;33mNot forwarding ACK from %s %s %s\x1b[0m - set to ignore incomming ACKs", source, pl31_message.panel_id, client_id, level=4)
+                            continue
+
                         if pl31_message.type == VIS_ACK and dest_profile.track_acks and not self._ack_tracker.is_awaiting_ack(dest_profile.name, dest_client_id):
                             _LOGGER.debug("Not forwarding ACK to %s %s as it is not waiting for it", dest_profile.name, dest_client_id)
                             continue
 
                         self._ack_tracker.remove_awaiting_ack(dest_profile.name, dest_client_id)
 
-                        self.log_message(
-                            "Forwarding message to %s %s",
-                            forwarder.destination,
-                            dest_client_id,
-                            level=5,
-                        )
+                        if pl31_message.type == VIS_ACK:
+                            self.log_message(
+                                "\x1b[1;35mForwarding ACK ->\x1b[0m %s %s",
+                                forwarder.destination,
+                                dest_client_id,
+                                level=4,
+                            )
+                        else:
+                            self.log_message(
+                                "\x1b[1;32mForwarding ->\x1b[0m %s %s",
+                                forwarder.destination,
+                                dest_client_id,
+                                level=2,
+                            )
                         if forwarder.remove_pl31_wrapper:
                             self._message_queue.put(
                                 forwarder.destination,

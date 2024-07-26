@@ -58,6 +58,7 @@ class ConnectionProfile:
     preprocess: bool = False
     forwarders: list[Forwarder] | None = None
     track_acks: bool = False
+    ignore_incomming_acks: bool = False
 
 
 @dataclass
