@@ -13,6 +13,7 @@ from .const import (
     ADM_ACK,
     ADM_CID,
     MESSAGE_LOG_LEVEL,
+    PROXY_MODE,
     VIS_ACK,
     VIS_BBA,
     Commands,
@@ -195,6 +196,11 @@ class MessageCoordinator:
         for connection in self.connection_profiles:
             self._connection_manager.add_connection(connection)
 
+        _LOGGER.info("Message log level: %s", MESSAGE_LOG_LEVEL)
+        if PROXY_MODE:
+            _LOGGER.info("Running in Proxy Mode")
+        else:
+            _LOGGER.info("Running in Standalone Mode")
         # Start connection manager
         await self._connection_manager.start()
 
