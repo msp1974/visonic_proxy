@@ -113,6 +113,8 @@ class Runner:
                             destination=ConnectionName.ALARM,
                         )
                     ],
+                    track_acks=True,
+                    ignore_incomming_acks=True,
                     preprocess=True,
                 ),
             ]
