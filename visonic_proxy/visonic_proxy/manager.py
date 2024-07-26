@@ -222,6 +222,13 @@ class MessageCoordinator:
         2- command
         3+ params in 2 byte chunks
         """
+        if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
+            message = self._message_builer.build_powerlink31_message(
+                self._tracker.get_next(), msg.hex(" ")
+            )
+            return message.msg_data
+        
+        # Else deal with shortcut commands
         msg_type = msg[:1].hex()
         command = msg[1:2].hex()
         params = msg[2:].hex(" ")
@@ -415,6 +422,7 @@ class MessageCoordinator:
                 connection = self._connection_manager.get_connection(
                     destination, client_id
                 )
+
                 _LOGGER.debug("WRITE CONNECTION: %s", connection)
                 if connection:
                     _LOGGER.debug(
@@ -446,9 +454,9 @@ class MessageCoordinator:
                         client_id,
                         retry,
                     )
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
 
             # Dump message if exceeded retry
-            if retry >= 5:
+            if retry >= 15:
                 self._message_queue.processed()
                 retry = 0
