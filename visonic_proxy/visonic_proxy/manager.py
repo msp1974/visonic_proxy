@@ -397,9 +397,10 @@ class MessageCoordinator:
             self._tracker.last_message_no + 1
         )
         self.log_message(
-            "\x1b[1;32mCM KEEPALIVE ->\x1b[0m %s %s",
+            "\x1b[1;32mCM KEEPALIVE ->\x1b[0m %s %s -> %s",
             destination,
             client_id,
+            "0d b0 01 6a 00 43 a0 0a",
             level=3,
         )
         self._message_queue.put(
