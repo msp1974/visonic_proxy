@@ -111,22 +111,25 @@ class Webserver:
 
     def _webserver(self):
         """Start webserver."""
-        dir_path = os.path.dirname(os.path.realpath(__file__))
-        ssl_context = SSLContext(PROTOCOL_TLS_SERVER)
-        ssl_context.load_cert_chain(
-            dir_path + "/certs/cert.pem",
-            dir_path + "/certs/private.key",
-        )
-        #self.host = get_ip()
-        self.server = HTTPServer((self.host, self.port), RequestHandler)
-        self.server.socket = ssl_context.wrap_socket(
-            self.server.socket, server_side=True
-        )
+        try:
+            dir_path = os.path.dirname(os.path.realpath(__file__))
+            ssl_context = SSLContext(PROTOCOL_TLS_SERVER)
+            ssl_context.load_cert_chain(
+                dir_path + "/certs/cert.pem",
+                dir_path + "/certs/private.key",
+            )
+            #self.host = get_ip()
+            self.server = HTTPServer((self.host, self.port), RequestHandler)
+            self.server.socket = ssl_context.wrap_socket(
+                self.server.socket, server_side=True
+            )
 
-        _LOGGER.info("Webserver started on %s port %s", self.host, self.port)
-
-        while self.running:
-            self.server.handle_request()
+            _LOGGER.info("Webserver started on %s port %s", self.host, self.port)
+        except Exception as ex:
+            _LOGGER.error("Unable to start webserver. Error is %s", ex)
+        else:
+            while self.running:
+                self.server.handle_request()
 
     async def stop(self):
         """Stop webserver."""
