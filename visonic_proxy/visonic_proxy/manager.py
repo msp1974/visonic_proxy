@@ -392,11 +392,15 @@ class MessageCoordinator:
 
     def send_keepalive(self, destination: ConnectionName, client_id: str = ""):
         """Send keepalive message"""
-        self.log_message(
-            "Sending Keep-alive for %s - %s", destination, client_id, level=5
-        )
+        
         msg = self._message_builer.build_keep_alive_message(
             self._tracker.last_message_no + 1
+        )
+        self.log_message(
+            "\x1b[1;32mCM KEEPALIVE ->\x1b[0m %s %s",
+            destination,
+            client_id,
+            level=3,
         )
         self._message_queue.put(
             destination, client_id, msg.msg_data, MessagePriority.HIGH

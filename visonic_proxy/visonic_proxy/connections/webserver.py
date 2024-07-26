@@ -91,6 +91,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             try:
                 if not self.wfile.closed:
                     response = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
+                    log_message("\x1b[1;36mCM HTTPS ->\x1b[0m %s", response.decode().replace("\n", ""), level=5)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
                     self.wfile.write(response)
