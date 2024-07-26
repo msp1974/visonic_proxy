@@ -61,7 +61,6 @@ class Runner:
                         #    remove_pl31_wrapper=True,
                         #)
                     ],
-                    track_acks=True,
                     run_watchdog=True,
                 ),
                 ConnectionProfile(
