@@ -83,10 +83,6 @@ class MessageBuilder:
         msg_initiator = "\n"
         msg_type = "VIS-ACK" if is_ack else "VIS-BBA"
 
-        if not is_ack:
-            # Increment meeage id
-            msg_id += 1
-
         msg_start = f'"{msg_type}"{msg_id:04}L{self.account}#{self.alarm_serial}['
         msg_end = "]"
         msg_terminator = "\r"
