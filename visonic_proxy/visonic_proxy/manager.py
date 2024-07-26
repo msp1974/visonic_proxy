@@ -326,7 +326,7 @@ class MessageCoordinator:
                             continue
 
                         if pl31_message.type == VIS_ACK and dest_profile.track_acks and not self._ack_tracker.is_awaiting_ack(dest_profile.name, dest_client_id):
-                            _LOGGER.debug("Not forwarding ACK to %s %s as it is not waiting for it", dest_profile.name, dest_client_id)
+                            self.log_message("\x1b[1;33mNot forwarding ACK to %s %s %s\x1b[0m - request was not from this connetion", dest_profile.name, pl31_message.panel_id, dest_client_id, level=4)
                             continue
 
                         self._ack_tracker.remove_awaiting_ack(dest_profile.name, dest_client_id)
