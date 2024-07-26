@@ -165,6 +165,9 @@ class ConnectionManager:
                 if client_id and isinstance(connection.connection, ClientConnection):
                     if connection.connection.parent_connection_id == client_id:
                         return connection
+                elif client_id and isinstance(connection.connection, ServerConnection):
+                    if connection.connection.clients:
+                        return connection
                 else:
                     return connection
 
