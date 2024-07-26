@@ -4,7 +4,6 @@ Responds to POST reqest with simple response."""
 
 import asyncio
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import json
 import logging
 import os
 from ssl import PROTOCOL_TLS_SERVER, SSLContext
@@ -51,8 +50,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             post_body = b""
 
         log_message("\x1b[1;36mAlarm HTTPS ->\x1b[0m %s", post_body.decode().replace("\n", ""), level=5)
-        
 
+        self.send_response(200)
+        
         if PROXY_MODE:
             try:
                 headers = {}
@@ -66,8 +66,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                     verify=False,
                     timeout=5,
                 )
-
-                self.send_response(200)
 
                 if initial_requests < 5:
                     resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
@@ -90,11 +88,13 @@ class RequestHandler(BaseHTTPRequestHandler):
         else:
             try:
                 if not self.wfile.closed:
-                    response = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
-                    log_message("\x1b[1;36mCM HTTPS ->\x1b[0m %s", response.decode().replace("\n", ""), level=5)
+                    resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
+                    log_message("\x1b[1;36mCM HTTPS ->\x1b[0m %s", resp.decode().replace("\n", ""), level=5)
                     self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", len(resp))
+                    self.send_header("Connection", "keep-alive")
                     self.end_headers()
-                    self.wfile.write(response)
+                    self.wfile.write(resp)
                     self.wfile.flush()
             except (TimeoutError, OSError) as ex:
                 _LOGGER.warning("HTTP connection timed out sending to panel.  %s", ex)
