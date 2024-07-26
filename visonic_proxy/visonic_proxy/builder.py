@@ -42,21 +42,21 @@ class MessageBuilder:
             checksum = 0x00
         return checksum.to_bytes(1, "big")
 
-    def build_ack_message(self, msg_id: int):
+    def build_ack_message(self, msg_id: int) -> MessageItem:
         """Build ACK message."""
         ack = "0d 02 43 ba 0a"
         return self.build_powerlink31_message(msg_id, ack, is_ack=True)
 
-    def build_keep_alive_message(self, msg_id: int):
+    def build_keep_alive_message(self, msg_id: int) -> MessageItem:
         """Build keep alive message."""
-        # ka = "0d b0 01 6a 00 43 a0 0a"
-        return self.build_b0_request(msg_id, "6a")
+        ka = "0d b0 01 6a 00 43 a0 0a"
+        return self.build_powerlink31_message(msg_id, ka)
 
-    def build_eprom_rw_mode_message(self, msg_id: int):
+    def build_eprom_rw_mode_message(self, msg_id: int) -> MessageItem:
         """Build eprom rw mode message."""
         return self.build_std_request(msg_id, "09")
 
-    def build_exit_eprom_rw_mode(self, msg_id: int):
+    def build_exit_eprom_rw_mode(self, msg_id: int) -> MessageItem:
         """Build exit eprom mode message."""
         return self.build_std_request(msg_id, "0f")
 
