@@ -53,20 +53,22 @@ class AckTracker:
     """Track connections waiting for ack."""
     _waiting_ack: list = field(default_factory=list)
 
-    def add_awaiting_ack(self, source: ConnectionName, client_id: str):
-        ack_id = f"{source}_{client_id}"
+    def add_awaiting_ack(self, source: ConnectionName, client_id: str, msg_id: int):
+        ack_id = f"{source}_{client_id}_{msg_id}"
         if ack_id not in self._waiting_ack:
-            self._waiting_ack.append(f"{source}_{client_id}")
+            self._waiting_ack.append(f"{source}_{client_id}_{msg_id}")
 
-    def remove_awaiting_ack(self, source: ConnectionName, client_id: str):
-        ack_id = f"{source}_{client_id}"
+    def remove_awaiting_ack(self, source: ConnectionName, client_id: str, msg_id: int):
+        ack_id = f"{source}_{client_id}_{msg_id}"
         if ack_id in self._waiting_ack:
             self._waiting_ack.remove(ack_id)
 
-    def is_awaiting_ack(self, source: ConnectionName, client_id: str):
-        ack_id = f"{source}_{client_id}"
+    def is_awaiting_ack(self, source: ConnectionName, client_id: str, msg_id: int):
+        ack_id = f"{source}_{client_id}_{msg_id}"
         if ack_id in self._waiting_ack:
             return True
+        
+        # Sometimes a Visonic server sends an ACK
         return False
     
 class QueueID:
@@ -289,18 +291,18 @@ class MessageCoordinator:
             # Track acks if set to do so
             profile = self._connection_manager.get_profile(source)
             if profile.track_acks and pl31_message.type == VIS_BBA:
-                self._ack_tracker.add_awaiting_ack(source, client_id)
+                self._ack_tracker.add_awaiting_ack(source, client_id, pl31_message.msg_id)
 
             self.log_message(
                     "\x1b[1;36m%s %s %s RAW ->\x1b[0m %s", source, pl31_message.panel_id, client_id, data.hex(" "), level=6
                 )
             if pl31_message.type == VIS_ACK:
                 self.log_message(
-                    "\x1b[1;35m%s %s %s ACK ->\x1b[0m %s", source, pl31_message.panel_id, client_id, pl31_message.message.hex(" "), level=4
+                    "\x1b[1;35m%s %s %s ACK MSGID:%s ->\x1b[0m %s", source, pl31_message.panel_id, client_id, pl31_message.msg_id, pl31_message.message.hex(" "), level=4
                 )
             else:
                 self.log_message(
-                    "\x1b[1;32m%s %s %s ->\x1b[0m %s", source, pl31_message.panel_id, client_id, pl31_message.message.hex(" "), level=1
+                    "\x1b[1;32m%s %s %s MSGID:%s ->\x1b[0m %s", source, pl31_message.panel_id, client_id, pl31_message.msg_id, pl31_message.message.hex(" "), level=1
                 )
 
             # If message should be forwarded
@@ -322,14 +324,14 @@ class MessageCoordinator:
 
                     for dest_client_id in dest_client_ids:
                         if pl31_message.type == VIS_ACK and profile.ignore_incomming_acks:
-                            self.log_message("\x1b[1;33mNot forwarding ACK from %s %s %s\x1b[0m - set to ignore incomming ACKs", source, pl31_message.panel_id, client_id, level=4)
+                            self.log_message("\x1b[1;33mNot forwarding ACK from %s %s %s MSGID:%s\x1b[0m - set to ignore incomming ACKs", source, pl31_message.panel_id, client_id,pl31_message.msg_id, level=6)
                             continue
 
-                        if pl31_message.type == VIS_ACK and dest_profile.track_acks and not self._ack_tracker.is_awaiting_ack(dest_profile.name, dest_client_id):
-                            self.log_message("\x1b[1;33mNot forwarding ACK to %s %s %s\x1b[0m - request was not from this connetion", dest_profile.name, pl31_message.panel_id, dest_client_id, level=4)
+                        if pl31_message.type == VIS_ACK and dest_profile.track_acks and not self._ack_tracker.is_awaiting_ack(dest_profile.name, dest_client_id, pl31_message.msg_id):
+                            self.log_message("\x1b[1;33mNot forwarding ACK to %s %s\x1b[0m - Request not from this connetion", dest_profile.name, dest_client_id, level=6)
                             continue
 
-                        self._ack_tracker.remove_awaiting_ack(dest_profile.name, dest_client_id)
+                        self._ack_tracker.remove_awaiting_ack(dest_profile.name, dest_client_id, pl31_message.msg_id)
 
                         if pl31_message.type == VIS_ACK:
                             self.log_message(
