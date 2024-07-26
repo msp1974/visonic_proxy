@@ -14,7 +14,7 @@ LOG_FILES_TO_KEEP = 10
 # 3 same as 2 plus keepalives (if in non Proxy mode - in Proxy mode, same as 2)
 # 4 same as 3 plus acks
 # 5 same as 4 plus web messages
-# 6 same as 5 plus full PL31 raw message
+# 6 same as 5 plus full PL31 raw message and not forwarded messages
 MESSAGE_LOG_LEVEL = 5
 
 
