@@ -9,12 +9,13 @@ LOG_TO_FILE = False
 LOG_FILES_TO_KEEP = 10
 
 # Level of messagestobe logged.
-# 1 just decoded messages
-# 2 same as 1 plus raw message
-# 3 same as 2 plus decoder info
-# 4 same as 3 plus structured message, paged messages
-# 5 same as 4 plus powerlink message decoded, ACKs, forwarding info, keep-alives
-MESSAGE_LOG_LEVEL = 3
+# 1 just messages and errors/warnings
+# 2 same as 1 plus forward info
+# 3 same as 2 plus keepalives (if in non Proxy mode - in Proxy mode, same as 2)
+# 4 same as 3 plus acks
+# 5 same as 4 plus web messages
+# 6 same as 5 plus full PL31 raw message
+MESSAGE_LOG_LEVEL = 5
 
 
 VISONIC_HOST = "52.58.105.181"
