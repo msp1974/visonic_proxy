@@ -7,8 +7,8 @@ from enum import StrEnum
 import logging
 from operator import attrgetter
 
-from .builder import MessageBuilder, MessageItem
-from .const import (
+from ..builder import MessageBuilder, MessageItem
+from ..const import (
     ADM_ACK,
     ADM_CID,
     MESSAGE_LOG_LEVEL,
@@ -19,8 +19,8 @@ from .const import (
     ConnectionName,
     MessagePriority,
 )
-from .decoders.pl31_decoder import PowerLink31MessageDecoder
-from .old_code.manager import ConnectionManager, ConnectionProfile, Forwarder
+from ..decoders.pl31_decoder import PowerLink31MessageDecoder
+from .manager import ConnectionManager, ConnectionProfile, Forwarder
 
 _LOGGER = logging.getLogger(__name__)
 
