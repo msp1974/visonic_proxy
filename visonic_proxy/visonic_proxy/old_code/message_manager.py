@@ -2,13 +2,12 @@
 
 import asyncio
 from dataclasses import dataclass, field
+import datetime as dt
 from enum import StrEnum
 import logging
 from operator import attrgetter
-import datetime as dt
 
 from .builder import MessageBuilder, MessageItem
-from .connections.manager import ConnectionManager, ConnectionProfile, Forwarder
 from .const import (
     ADM_ACK,
     ADM_CID,
@@ -21,7 +20,7 @@ from .const import (
     MessagePriority,
 )
 from .decoders.pl31_decoder import PowerLink31MessageDecoder
-
+from .old_code.manager import ConnectionManager, ConnectionProfile, Forwarder
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,34 +43,40 @@ class MessageTracker:
     def get_next(self):
         """Get next msg id."""
         return self.last_message_no + 1
-    
+
     def get_current(self):
-        """Get current/last message id"""
+        """Get current/last message id."""
         return self.last_message_no
+
 
 @dataclass
 class AckTracker:
     """Track connections waiting for ack."""
+
     _waiting_ack: list = field(default_factory=list)
 
     def add_awaiting_ack(self, source: ConnectionName, client_id: str, msg_id: int):
+        """Add awaiting ack record."""
         ack_id = f"{source}_{client_id}_{msg_id}"
         if ack_id not in self._waiting_ack:
             self._waiting_ack.append(f"{source}_{client_id}_{msg_id}")
 
     def remove_awaiting_ack(self, source: ConnectionName, client_id: str, msg_id: int):
+        """Remove awaiting ack record."""
         ack_id = f"{source}_{client_id}_{msg_id}"
         if ack_id in self._waiting_ack:
             self._waiting_ack.remove(ack_id)
 
     def is_awaiting_ack(self, source: ConnectionName, client_id: str, msg_id: int):
+        """Return if is awaiting ack."""
         ack_id = f"{source}_{client_id}_{msg_id}"
         if ack_id in self._waiting_ack:
             return True
-        
+
         # Sometimes a Visonic server sends an ACK
         return False
-    
+
+
 class QueueID:
     """Queue message id generator."""
 
@@ -86,7 +91,7 @@ class QueueID:
 
 @dataclass
 class QueuedMessage:
-    """Queued message"""
+    """Queued message."""
 
     queue_id: int
     priority: MessagePriority = MessagePriority.LOW
@@ -99,6 +104,7 @@ class MessageQueue:
     """Message queue."""
 
     def __init__(self):
+        """Initialise."""
         self._queue: list[QueuedMessage] = []
         self._queue_id = QueueID()
         self._last_id: int = 0
@@ -150,7 +156,7 @@ class MessageQueue:
 
 
 class MessageCoordinator:
-    """Class for message coordinator
+    """Class for message coordinator.
 
     Ensures flow control of Request -> ACK -> Response
     Ensures messages from one connection get routed to the right other connection
@@ -178,10 +184,9 @@ class MessageCoordinator:
         self.pl31_message_decoder = PowerLink31MessageDecoder()
         self._message_queue = MessageQueue()
 
-
     def log_message(self, message: str, *args, level: int = 5):
         """Log message to logger if level."""
-        if MESSAGE_LOG_LEVEL >= level:
+        if level <= MESSAGE_LOG_LEVEL:
             _LOGGER.info(message, *args)
 
     def get_profile(self, name: ConnectionName) -> ConnectionProfile | None:
@@ -197,10 +202,8 @@ class MessageCoordinator:
             self._connection_manager.add_connection(connection)
 
         _LOGGER.info("Message log level: %s", MESSAGE_LOG_LEVEL)
-        if PROXY_MODE:
-            _LOGGER.info("Running in Proxy Mode")
-        else:
-            _LOGGER.info("Running in Standalone Mode")
+        _LOGGER.info("Running in %s", "Proxy Mode" if PROXY_MODE else "Standalone Mode")
+
         # Start connection manager
         await self._connection_manager.start()
 
@@ -227,24 +230,25 @@ class MessageCoordinator:
         _LOGGER.info("Message Coordinator Stopped")
 
     def message_preprocessor(self, msg: bytes) -> MessageItem:
-        """Preprocessor for using injector to send message to alarm
+        r"""Preprocessor for using injector to send message to alarm.
 
         Messages can be injected in:
-         Full format - 0d b0 01 6a 00 43 a0 0a \ 0d a2 00 00 08 00 00 00 00 00 00 00 43 12 0a
-         Partial format - b0 01 6a 43 \ a2 00 00 08 00 00 00 00 00 00 00 43
-         Short format (for B0 messages only) - b0 6a / b0 17 18 24
+        Full format - 0d b0 01 6a 00 43 a0 0a \ 0d a2 00 00 08 00 00 00 00 00 00 00 43 12 0a
+        Partial format - b0 01 6a 43 \ a2 00 00 08 00 00 00 00 00 00 00 43
+        Short format (for B0 messages only) - b0 6a / b0 17 18 24
         """
         if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
-            
             if msg[1:2] == b"\x02":
                 # Received ack message.  Use build_ack_message to ensure correct ACK type
-                message = self._message_builer.build_ack_message(self._tracker.get_current())
+                message = self._message_builer.build_ack_message(
+                    self._tracker.get_current()
+                )
             else:
                 message = self._message_builer.build_powerlink31_message(
                     self._tracker.get_next(), msg.hex(" ")
                 )
             return message.msg_data
-        
+
         # Else deal with shortcut commands
         if msg[:1] == b"\xb0":
             if msg[-1:] != b"\x43":
@@ -277,7 +281,7 @@ class MessageCoordinator:
         destinations: list[Forwarder] | str,
         data: bytes | str,
     ):
-        """Handle received message"""
+        """Handle received message."""
 
         if command:
             _LOGGER.info("Received command action: %s", data)
@@ -297,47 +301,96 @@ class MessageCoordinator:
             # Track acks if set to do so
             profile = self._connection_manager.get_profile(source)
             if profile.track_acks and pl31_message.type == VIS_BBA:
-                self._ack_tracker.add_awaiting_ack(source, client_id, pl31_message.msg_id)
+                self._ack_tracker.add_awaiting_ack(
+                    source, client_id, pl31_message.msg_id
+                )
 
             self.log_message(
-                    "\x1b[1;36m%s %s %s RAW ->\x1b[0m %s", source, pl31_message.panel_id, client_id, data.hex(" "), level=6
-                )
+                "\x1b[1;36m%s %s %s RAW ->\x1b[0m %s",
+                source,
+                pl31_message.panel_id,
+                client_id,
+                data.hex(" "),
+                level=6,
+            )
             if pl31_message.type == VIS_ACK:
                 self.log_message(
-                    "\x1b[1;35m%s %s %s ACK MSGID:%s ->\x1b[0m %s", source, pl31_message.panel_id, client_id, pl31_message.msg_id, pl31_message.message.hex(" "), level=4
+                    "\x1b[1;35m%s %s %s ACK MSGID:%s ->\x1b[0m %s",
+                    source,
+                    pl31_message.panel_id,
+                    client_id,
+                    pl31_message.msg_id,
+                    pl31_message.message.hex(" "),
+                    level=4,
                 )
             else:
                 self.log_message(
-                    "\x1b[1;32m%s %s %s MSGID:%s ->\x1b[0m %s", source, pl31_message.panel_id, client_id, pl31_message.msg_id, pl31_message.message.hex(" "), level=1
+                    "\x1b[1;32m%s %s %s MSGID:%s ->\x1b[0m %s",
+                    source,
+                    pl31_message.panel_id,
+                    client_id,
+                    pl31_message.msg_id,
+                    pl31_message.message.hex(" "),
+                    level=1,
                 )
 
             # If message should be forwarded
             if destinations:
                 for forwarder in destinations:
                     dest_client_ids = []
-                    dest_profile = self._connection_manager.get_profile(forwarder.destination)
+                    dest_profile = self._connection_manager.get_profile(
+                        forwarder.destination
+                    )
 
                     if forwarder.forward_to_all_connections:
                         connection = self._connection_manager.get_connection(
                             forwarder.destination
                         )
-                        if hasattr(connection.connection, "clients") and connection.connection.clients:
-                            dest_client_ids = [client_id for client_id in connection.connection.clients.keys()]
+                        if (
+                            hasattr(connection.connection, "clients")
+                            and connection.connection.clients
+                        ):
+                            dest_client_ids = list(connection.connection.clients)
                     else:
                         dest_client_ids = [client_id]
 
-                    _LOGGER.debug("FORWARD DESTS: %s %s", forwarder.destination, dest_client_ids)
+                    _LOGGER.debug(
+                        "FORWARD DESTS: %s %s", forwarder.destination, dest_client_ids
+                    )
 
                     for dest_client_id in dest_client_ids:
-                        if pl31_message.type == VIS_ACK and profile.ignore_incomming_acks:
-                            self.log_message("\x1b[1;33mNot forwarding ACK from %s %s %s MSGID:%s\x1b[0m - set to ignore incomming ACKs", source, pl31_message.panel_id, client_id,pl31_message.msg_id, level=6)
+                        if (
+                            pl31_message.type == VIS_ACK
+                            and profile.ignore_incomming_acks
+                        ):
+                            self.log_message(
+                                "\x1b[1;33mNot forwarding ACK from %s %s %s MSGID:%s\x1b[0m - set to ignore incomming ACKs",
+                                source,
+                                pl31_message.panel_id,
+                                client_id,
+                                pl31_message.msg_id,
+                                level=6,
+                            )
                             continue
 
-                        if pl31_message.type == VIS_ACK and dest_profile.track_acks and not self._ack_tracker.is_awaiting_ack(dest_profile.name, dest_client_id, pl31_message.msg_id):
-                            self.log_message("\x1b[1;33mNot forwarding ACK to %s %s\x1b[0m - Request not from this connetion", dest_profile.name, dest_client_id, level=6)
+                        if (
+                            pl31_message.type == VIS_ACK
+                            and dest_profile.track_acks
+                            and not self._ack_tracker.is_awaiting_ack(
+                                dest_profile.name, dest_client_id, pl31_message.msg_id
+                            )
+                        ):
+                            self.log_message(
+                                "\x1b[1;33mNot forwarding ACK to %s %s\x1b[0m - Request not from this connetion",
+                                dest_profile.name,
+                                dest_client_id,
+                                level=6,
+                            )
                             continue
 
-                        self._ack_tracker.remove_awaiting_ack(dest_profile.name, dest_client_id, pl31_message.msg_id)
+                        self._ack_tracker.remove_awaiting_ack(
+                            dest_profile.name, dest_client_id, pl31_message.msg_id
+                        )
 
                         if pl31_message.type == VIS_ACK:
                             self.log_message(
@@ -399,8 +452,8 @@ class MessageCoordinator:
                     self.send_ack(source, client_id, pl31_message.msg_id)
 
     def send_keepalive(self, destination: ConnectionName, client_id: str = ""):
-        """Send keepalive message"""
-        
+        """Send keepalive message."""
+
         msg = self._message_builer.build_keep_alive_message(
             self._tracker.last_message_no + 1
         )
@@ -431,7 +484,7 @@ class MessageCoordinator:
         )
 
     async def _message_sender_task(self):
-        """Message sender task
+        """Message sender task.
 
         Runs in an async task
         """
@@ -464,7 +517,7 @@ class MessageCoordinator:
                         )
                         self._message_queue.processed()
                         retry = 0
-                    except Exception as ex:  # pylint: disable=broad-exception-caught
+                    except Exception as ex:  # pylint: disable=broad-exception-caught  # noqa: BLE001
                         retry += 1
                         _LOGGER.error(
                             "Error sending message to %s %s. %s",

@@ -3,16 +3,7 @@
 import asyncio
 import logging
 
-from .connections.manager import ConnectionProfile, ConnectionType, Forwarder
-
-from .const import ALARM_MONITOR_PORT,  MESSAGE_PORT, VISONIC_HOST, VISONIC_MONITOR_PORT, ConnectionName
-from .manager import (
-    MessageCoordinator,
-    MessageCoordinatorStatus,
-)
-
-from .const import PROXY_MODE
-
+from .router import MessageCoordinatorStatus, MessageRouter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,104 +12,13 @@ class Runner:
     """Runner manager."""
 
     def __init__(self, evloop):
+        """Initialise."""
         self.loop = evloop
-        self.mm: MessageCoordinator = None
-
-        self.my_ip = "0.0.0.0"
+        self.mm: MessageRouter = None
 
     async def run(self):
         """Run servers."""
-        if PROXY_MODE:
-            connections = [
-                ConnectionProfile(
-                    name=ConnectionName.ALARM,
-                    connection_type=ConnectionType.SERVER,
-                    host=self.my_ip,
-                    port=MESSAGE_PORT,
-                    forwarders=[
-                        Forwarder(destination=ConnectionName.VISONIC),
-                        Forwarder(
-                            destination=ConnectionName.ALARM_MONITOR,
-                            forward_to_all_connections=True,
-                            remove_pl31_wrapper=True,
-                        ),
-                    ],
-                    run_watchdog=True,
-                ),
-                ConnectionProfile(
-                    name=ConnectionName.VISONIC,
-                    connection_type=ConnectionType.CLIENT,
-                    host=VISONIC_HOST,
-                    port=MESSAGE_PORT,
-                    connect_with=ConnectionName.ALARM,
-                    forwarders=[
-                        Forwarder(destination=ConnectionName.ALARM),
-                        Forwarder(destination=ConnectionName.VISONIC_MONITOR, forward_to_all_connections=True, remove_pl31_wrapper=True)
-                        # Add the below forwarder to get Visonic messages on Alarm Monitor connection
-                        #Forwarder(
-                        #    destination=ConnectionName.ALARM_MONITOR,
-                        #    forward_to_all_connections=True,
-                        #    remove_pl31_wrapper=True,
-                        #)
-                    ],
-                    run_watchdog=True,
-                ),
-                ConnectionProfile(
-                    name=ConnectionName.ALARM_MONITOR,
-                    connection_type=ConnectionType.SERVER,
-                    host=self.my_ip,
-                    port=ALARM_MONITOR_PORT,
-                    forwarders=[
-                        Forwarder(destination=ConnectionName.ALARM),
-                    ],
-                    ignore_incomming_acks=True,
-                    track_acks=True,
-                    preprocess=True,
-                ),
-                ConnectionProfile(
-                    name=ConnectionName.VISONIC_MONITOR,
-                    connection_type=ConnectionType.SERVER,
-                    host=self.my_ip,
-                    port=VISONIC_MONITOR_PORT,
-                    forwarders=[],
-                    preprocess=True,
-                ),
-            ]
-        else:
-            connections = [
-                ConnectionProfile(
-                    name=ConnectionName.ALARM,
-                    connection_type=ConnectionType.SERVER,
-                    host=self.my_ip,
-                    port=MESSAGE_PORT,
-                    forwarders=[
-                        Forwarder(
-                            destination=ConnectionName.ALARM_MONITOR,
-                            forward_to_all_connections=True,
-                            remove_pl31_wrapper=True,
-                        )
-                    ],
-                    send_keepalives=True,
-                    ack_received_messages=True,
-                    run_watchdog=True,
-                ),
-                ConnectionProfile(
-                    name=ConnectionName.ALARM_MONITOR,
-                    connection_type=ConnectionType.SERVER,
-                    host=self.my_ip,
-                    port=ALARM_MONITOR_PORT,
-                    forwarders=[
-                        Forwarder(
-                            destination=ConnectionName.ALARM,
-                        )
-                    ],
-                    track_acks=True,
-                    ignore_incomming_acks=True,
-                    preprocess=True,
-                ),
-            ]
-
-        self.mm = MessageCoordinator(self.loop, connections)
+        self.mm = MessageRouter()
         await self.mm.start()
 
         # Give it time to start
@@ -128,5 +28,5 @@ class Runner:
             await asyncio.sleep(1)
 
     async def stop(self):
-        """Stop"""
+        """Stop."""
         await self.mm.stop()

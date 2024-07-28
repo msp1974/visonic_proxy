@@ -52,7 +52,17 @@ class MessagePriority(IntEnum):
 class ConnectionName(StrEnum):
     """Connection name enum."""
 
+    CM = "Connection_Manager"
     ALARM = "Alarm"
     VISONIC = "Visonic"
     ALARM_MONITOR = "Alarm_Monitor"
     VISONIC_MONITOR = "Visonic_Monitor"
+
+
+class ConnectionSourcePriority(IntEnum):
+    """Message priority for source."""
+
+    CM = 0
+    ALARM = 1
+    VISONIC = 2
+    ALARM_MONITOR = 3

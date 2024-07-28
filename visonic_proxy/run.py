@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Run script"""
+"""Run script."""
 
 import asyncio
 import logging
@@ -13,9 +13,7 @@ from visonic_proxy.visonic import Runner
 handlers = [logging.StreamHandler(sys.stdout)]
 
 if LOG_TO_FILE:
-    f_handler = RotatingFileHandler(
-        "message.log", backupCount=LOG_FILES_TO_KEEP
-    )
+    f_handler = RotatingFileHandler("message.log", backupCount=LOG_FILES_TO_KEEP)
     handlers.append(f_handler)
 
 logging.basicConfig(

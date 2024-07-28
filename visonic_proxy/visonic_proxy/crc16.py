@@ -266,7 +266,7 @@ REFLECT_BIT_ORDER_TABLE = bytes(
 
 
 class Crc16Arc:
-    """CRC-16/ARC
+    """CRC-16/ARC.
 
     Aliases: ARC, CRC-16/LHA, CRC-IBM
     """
@@ -282,6 +282,7 @@ class Crc16Arc:
     _residue = 0x0000
 
     def __init__(self, initvalue=None):
+        """Initialise."""
         if initvalue is None:
             self._value = self._initvalue
         else:
@@ -293,6 +294,7 @@ class Crc16Arc:
         Args:
             width (int): bitwidth
             value (int): value to reflect
+
         """
         binstr = ("0" * width + bin(value)[2:])[-width:]
         return int(binstr[::-1], 2)
@@ -305,6 +307,7 @@ class Crc16Arc:
 
         Returns:
             self
+
         """
         crc = self._value
 
@@ -314,7 +317,7 @@ class Crc16Arc:
             if reflect:
                 byte = REFLECT_BIT_ORDER_TABLE[byte]
             crc ^= byte << 8
-            for _ in range(0, 8):
+            for _ in range(8):
                 if crc & 0x8000:
                     crc = (crc << 1) ^ poly
                 else:
@@ -328,6 +331,7 @@ class Crc16Arc:
 
         Return:
             int: final CRC value
+
         """
         crc = self._value
         if self._reflect_output:
@@ -337,10 +341,12 @@ class Crc16Arc:
 
     def finalbytes(self, byteorder="big"):
         """Return final checksum value as bytes.
+
         The internal state is not modified by this so further data can be processed afterwards.
 
         Return:
             bytes: final value as bytes
+
         """
         bytelength = int(math.ceil(self._width / 8.0))
         asint = self.final()
@@ -349,7 +355,7 @@ class Crc16Arc:
             return asint.to_bytes(bytelength, byteorder)
         except AttributeError:  # pragma: no cover
             asbytes = bytearray(bytelength)
-            for i in range(0, bytelength):
+            for i in range(bytelength):
                 asbytes[i] = asint & 0xFF
                 asint >>= 8
             if byteorder == "big":
@@ -358,21 +364,23 @@ class Crc16Arc:
 
     def finalhex(self, byteorder="big"):
         """Return final checksum value as hexadecimal string (without leading "0x").
+
         The hex value is zero padded to bitwidth/8.
         The internal state is not modified by this so further data can be processed afterwards.
 
         Return:
             str: final value as hex string without leading '0x'.
+
         """
         asbytes = self.finalbytes(byteorder)
         try:
             # bytearray.hex() is new in Python 3.5
             return asbytes.hex()
         except AttributeError:  # pragma: no cover
-            return "".join(["{:02x}".format(b) for b in asbytes])
+            return "".join([f"{b:02x}" for b in asbytes])
 
     @classmethod
-    def calc(cls, data, initvalue=None, **kwargs):
+    def calc(cls, data, initvalue=None, **kwargs):  # noqa: D417
         """Fully calculate CRC/checksum over given data.
 
         Args:
@@ -381,13 +389,14 @@ class Crc16Arc:
 
         Return:
             int: final value
+
         """
         inst = cls(initvalue, **kwargs)
         inst.process(data)
         return inst.final()
 
     @classmethod
-    def calchex(cls, data, initvalue=None, byteorder="big", **kwargs):
+    def calchex(cls, data, initvalue=None, byteorder="big", **kwargs):  # noqa: D417
         """Fully calculate checksum over given data. Return result as hex string.
 
         Args:
@@ -397,13 +406,14 @@ class Crc16Arc:
 
         Return:
             str: final value as hex string without leading '0x'.
+
         """
         inst = cls(initvalue, **kwargs)
         inst.process(data)
         return inst.finalhex(byteorder)
 
     @classmethod
-    def calcbytes(cls, data, initvalue=None, byteorder="big", **kwargs):
+    def calcbytes(cls, data, initvalue=None, byteorder="big", **kwargs):  # noqa: D417
         """Fully calculate checksum over given data. Return result as bytearray.
 
         Args:
@@ -413,6 +423,7 @@ class Crc16Arc:
 
         Return:
             bytes: final value as bytes
+
         """
         inst = cls(initvalue, **kwargs)
         inst.process(data)

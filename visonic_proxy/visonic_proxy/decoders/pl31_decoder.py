@@ -1,8 +1,8 @@
 """Decode Powerlink31 message wrapper."""
 
+from dataclasses import dataclass
 import logging
 import re
-from dataclasses import dataclass
 
 _LOGGER = logging.getLogger(__name__)
 

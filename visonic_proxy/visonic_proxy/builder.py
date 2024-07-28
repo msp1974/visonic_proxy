@@ -5,7 +5,6 @@ import logging
 
 from .crc16 import Crc16Arc
 
-
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -15,6 +14,7 @@ class MessageItem:
 
     msg_id: int
     msg_type: str
+    message: str
     msg_data: bytearray
 
 
@@ -33,7 +33,7 @@ class MessageBuilder:
     account: str = None
 
     def _calculate_message_checksum(self, msg: bytearray) -> bytes:
-        """Calculate CRC Checksum"""
+        """Calculate CRC Checksum."""
         checksum = 0
         for char in msg[0 : len(msg)]:
             checksum += char
@@ -60,10 +60,39 @@ class MessageBuilder:
         """Build exit eprom mode message."""
         return self.build_std_request(msg_id, "0f")
 
+    def message_preprocessor(self, msg_id: int, msg: bytes) -> MessageItem:
+        r"""Preprocessor for using injector to send message to alarm.
+
+        Messages can be injected in:
+        Full format - 0d b0 01 6a 00 43 a0 0a \ 0d a2 00 00 08 00 00 00 00 00 00 00 43 12 0a
+        Partial format - b0 01 6a 43 \ a2 00 00 08 00 00 00 00 00 00 00 43
+        Short format (for B0 messages only) - b0 6a / b0 17 18 24
+        """
+        if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
+            if msg[1:2] == b"\x02":
+                # Received ack message.  Use build_ack_message to ensure correct ACK type
+                message = self.build_ack_message(msg_id)
+            else:
+                message = self.build_powerlink31_message(msg_id, msg.hex(" "))
+            return message
+
+        # Else deal with shortcut commands
+        if msg[:1] == b"\xb0":
+            if msg[-1:] != b"\x43":
+                command = msg[1:2].hex()
+                params = msg[2:].hex(" ")
+                message = self.build_b0_request(msg_id, command, params)
+            else:
+                message = self.build_b0_partial_request(msg_id, msg.hex(" "))
+        else:
+            message = self.build_std_request(msg_id, msg)
+        return message
+
     def build_powerlink31_message(
         self, msg_id: int, message: str, is_ack: bool = False
     ) -> MessageItem:
-        """Build initial part of B0 message.
+        r"""Build initial part of B0 message.
+
         format is
         0a [CRC16][Length][MSG TYPE][MSG ID]L[ACCT NO]#[ALARM SERIAL][COMMAND]\r
 
@@ -78,6 +107,7 @@ class MessageBuilder:
         "VIS-ACK"/"VIS-BBA" - ACK for msg acknowldge, BBA for command/response message - have seen some *ADM-CID and *ACK
         MSG_ID increases with each BBA message.  ACK should be same as BBA it is ACK'ing
         ACCT_NO - message to Alarm is 0, from alarm is account no.
+
         """
 
         msg_initiator = "\n"
@@ -104,10 +134,11 @@ class MessageBuilder:
         msg.extend(base_msg)
         msg.extend(map(ord, msg_terminator))
 
-        return MessageItem(msg_id, msg_type, msg)
+        return MessageItem(msg_id, msg_type, message, msg)
 
     def build_std_request(self, msg_id: int, command: bytes) -> MessageItem:
-        """Build standard message to alarm
+        r"""Build standard message to alarm.
+
         Input is
         A6 00 00 00 00 00 00 00 00 00 00 43
         Output should be (wrapped in a powerlink message)
@@ -154,7 +185,8 @@ class MessageBuilder:
         return self.build_powerlink31_message(msg_id, message)
 
     def build_b0_partial_request(self, msg_id: int, msg: str) -> MessageItem:
-        """Wrap b0 full command
+        """Wrap b0 full command.
+
         input message should start b0 and end 43
         """
         checksum = self._calculate_message_checksum(bytes.fromhex(msg))
@@ -182,14 +214,14 @@ class MessageBuilder:
 
     def _build_b0_17_request(self, params: str) -> str:
         """Build 17 request.
+
         TESTING
         """
         cmd = "17"
         if params:
             no_requests = len(params.split(" "))
             length = 6 + no_requests
-            msg = f"{cmd} {length:02x} 01 FF 08 FF {no_requests:02x} {params} 00"
-            return msg
+            return f"{cmd} {length:02x} 01 FF 08 FF {no_requests:02x} {params} 00"
 
         return self._build_b0_generic_request(cmd, params)
 
@@ -232,7 +264,7 @@ class MessageBuilder:
         if no_configs < 3:
             # Need to have min 3 here and be filled up with 00 00
             bparams = bytearray.fromhex(params)
-            bparams.extend([0 for i in range(0, (2 - no_configs) * 2)])
+            bparams.extend([0 for i in range((2 - no_configs) * 2)])
             bparams.extend(bytearray.fromhex("ff ff"))
             params = bparams.hex(" ")
             no_configs = 3

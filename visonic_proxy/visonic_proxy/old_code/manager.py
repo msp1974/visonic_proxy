@@ -7,13 +7,11 @@ import datetime as dt
 from enum import StrEnum
 import logging
 
-from .webserver import Webserver
-
+from ..connections.client import ClientConnection
+from ..connections.webserver import Webserver
 from ..const import WATHCHDOG_TIMEOUT, Commands, ConnectionName
-
-from .client import ClientConnection
+from ..events import Event, EventType, subscribe
 from .server import ServerConnection
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -91,9 +89,10 @@ class ConnectionManager:
         self.webserver: Webserver = None
         self.watchdog_task: asyncio.Task = None
         self.webserver_task: asyncio.Task = None
+        self.unsubscribe_events: list[Callable] = []
 
     async def start(self):
-        """Start Connection Manager"""
+        """Start Connection Manager."""
 
         _LOGGER.info("Starting Connection Manager")
         self.status = ConnectionManagerStatus.STARTING
@@ -118,8 +117,18 @@ class ConnectionManager:
         _LOGGER.debug("Starting Connections")
         await self.async_start_connections()
 
+        # Subscrive to connection request events
+        self.unsubscribe_events.append(
+            subscribe(EventType.WEB_REQUEST_CONNECT, self.cb_event_listener)
+        )
+        _LOGGER.info(self.unsubscribe_events)
+
         self.status = ConnectionManagerStatus.RUNNING
         _LOGGER.info("Connection Manager Running")
+
+    async def cb_event_listener(self, event: Event):
+        """Handle callback."""
+        _LOGGER.info("Received connect requets event - %s", event)
 
     async def async_start_connections(self):
         """Start all connections that don't rely on connect_with."""
@@ -173,8 +182,13 @@ class ConnectionManager:
                     return connection
 
     async def stop(self):
-        """Shutdown all connections and terminate,"""
+        """Shutdown all connections and terminate."""
         self.status = ConnectionManagerStatus.CLOSING
+
+        # Unsubscribe all events
+        if self.unsubscribe_events:
+            for unsub in self.unsubscribe_events:
+                unsub()
 
         # Stop webserver
         if self.webserver_task and not self.webserver_task.done():
@@ -182,7 +196,7 @@ class ConnectionManager:
             try:
                 await self.webserver.stop()
                 self.webserver_task.cancel()
-            except Exception:  # pylint: disable=broad-exception-caught
+            except Exception:  # pylint: disable=broad-exception-caught  # noqa: BLE001
                 pass
 
         # Stop watchdog
@@ -200,7 +214,7 @@ class ConnectionManager:
     def get_connects_with(
         self, connection_name: ConnectionName
     ) -> list[ConnectionProfile]:
-        """Returns list of connections that connect with connection name."""
+        """Return list of connections that connect with connection name."""
         return [
             profile
             for profile in self._connection_profiles
@@ -214,7 +228,7 @@ class ConnectionManager:
                 return profile
 
     def is_connected(self, name: ConnectionName) -> bool:
-        """Returns if a profile is connected."""
+        """Return if a profile is connected."""
         connection = self.get_connection(name)
         if connection and connection.connection.connected:
             return True
@@ -350,7 +364,7 @@ class ConnectionManager:
                                 client_id,
                             )
                             connect_with.connection.disconnect_client(client_id)
-                except Exception as ex:  # pylint: disable=broad-exception-caught
+                except Exception as ex:  # pylint: disable=broad-exception-caught  # noqa: BLE001
                     _LOGGER.error(
                         "Exception disconnecting %s %s. %s",
                         connect_with.name,
