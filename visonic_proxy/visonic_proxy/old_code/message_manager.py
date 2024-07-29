@@ -226,6 +226,7 @@ class MessageCoordinator:
             _LOGGER.debug("Message sender cancelled")
 
         await self._connection_manager.stop()
+
         self.status = MessageCoordinatorStatus.STOPPED
         _LOGGER.info("Message Coordinator Stopped")
 

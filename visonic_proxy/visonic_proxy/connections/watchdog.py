@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+import contextlib
 import datetime as dt
 import logging
 
@@ -61,24 +62,30 @@ class Watchdog:
     def remove_client(self, event: Event):
         """Remove client id from watchdog list."""
         # _LOGGER.info("Client %s removed from %s watchdog", event.client_id, self.name)
-        if self._last_activity_tracker[event.client_id]:
+        if self._last_activity_tracker.get(event.client_id):
             del self._last_activity_tracker[event.client_id]
 
     async def _runner(self):
         while self._run_watchdog:
             await asyncio.sleep(5)
             if self._last_activity_tracker:
-                for client_id, last_activity in self._last_activity_tracker.items():
+                clients_to_disconnect = [
+                    client_id
+                    for client_id, last_activity in self._last_activity_tracker.items()
                     if (
                         last_activity
                         and (dt.datetime.now() - last_activity).total_seconds()
                         > self.inactive_period
-                    ):
-                        _LOGGER.info(
-                            "WATCHDOG -> Disconnecting %s %s due to inactivity",
-                            self.name,
-                            client_id,
-                        )
-                        await async_fire_event(
-                            Event(self.name, EventType.REQUEST_DISCONNECT, client_id)
-                        )
+                    )
+                ]
+                for client_id in clients_to_disconnect:
+                    _LOGGER.info(
+                        "WATCHDOG -> Disconnecting %s %s due to inactivity",
+                        self.name,
+                        client_id,
+                    )
+                    await async_fire_event(
+                        Event(self.name, EventType.REQUEST_DISCONNECT, client_id)
+                    )
+                    with contextlib.suppress(KeyError):
+                        del self._last_activity_tracker[client_id]

@@ -19,6 +19,7 @@ class PowerLink31Message:
     panel_id: str
     message_class: str
     message: bytes
+    original_message: bytes
 
 
 class PowerLink31MessageDecoder:
@@ -31,6 +32,7 @@ class PowerLink31MessageDecoder:
 
     def decode_powerlink31_message(self, message: bytes) -> PowerLink31Message:
         """Decode powerlink 3.1 message wrapper."""
+
         msg_decode = self.get_powerlink_31_wrapper(message).decode("ascii")
         l_index = msg_decode.find("L")
         hash_index = msg_decode.find("#")
@@ -54,4 +56,5 @@ class PowerLink31MessageDecoder:
             panel_id=panel_id,
             message_class=message_class,
             message=msg,
+            original_message=message,
         )

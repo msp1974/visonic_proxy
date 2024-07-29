@@ -10,6 +10,8 @@ from inspect import signature
 import logging
 import traceback
 
+from .decoders.pl31_decoder import PowerLink31Message
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -24,6 +26,7 @@ class EventType(StrEnum):
     DATA_RECEIVED = "data_received"
     DATA_SENT = "data_sent"
     SEND_KEEPALIVE = "keepalive"
+    ACK_TIMEOUT = "ack_timeout"
 
 
 @dataclass
@@ -33,13 +36,16 @@ class Event:
     name: str
     event_type: int
     client_id: str | None = None
-    event_data: str | int | bytes | None = None
+    event_data: str | int | bytes | PowerLink31Message | None = None
 
 
 class EventSubscribers:
     """Class to hold subscribers."""
 
     listeners: dict[str, list[Callable]] = {}
+
+
+_fire_later_tasks: list[asyncio.Task] = []
 
 
 def subscribe(name: str, event_type: EventType, callback: Callable) -> Callable:
@@ -74,10 +80,10 @@ def _unsubscribe(event_id: str, callback: Callable):
         del EventSubscribers.listeners[event_id]
 
 
-async def async_fire_event_later(delay: int, event: Event):
+async def async_fire_event_later(delay: int, event: Event) -> asyncio.TimerHandle:
     """Fire event after specified time delay in seconds."""
-    await asyncio.sleep(delay)
-    await async_fire_event(event)
+    loop = asyncio.get_running_loop()
+    return loop.call_later(delay, fire_event, event)
 
 
 async def async_fire_event(event: Event):
