@@ -16,7 +16,7 @@ LOG_FILES_TO_KEEP = 10
 # 4 same as 3 plus acks
 # 5 same as 4 plus web messages
 # 6 same as 5 plus full PL31 raw message and not forwarded messages
-MESSAGE_LOG_LEVEL = 6
+MESSAGE_LOG_LEVEL = 5
 
 
 VISONIC_HOST = "52.58.105.181"
@@ -34,8 +34,8 @@ ADM_CID = "*ADM-CID"
 ADM_ACK = "*ACK"
 
 MONITOR_SERVER_DOES_ACKS = False
-STATUS_COMMAND = "E0"
-ACTION_COMMAND = "E1"
+STATUS_COMMAND = "e0"
+ACTION_COMMAND = "e1"
 
 DISCONNECT_MESSAGE = "0d ad 0a 00 00 00 00 00 00 00 00 00 43 05 0a"
 

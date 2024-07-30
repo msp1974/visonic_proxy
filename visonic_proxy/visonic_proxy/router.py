@@ -9,6 +9,7 @@ import logging
 from .builder import MessageBuilder
 from .connections.coordinator import ConnectionCoordinator
 from .const import (
+    ACTION_COMMAND,
     ADM_ACK,
     ADM_CID,
     DISCONNECT_MESSAGE,
@@ -16,7 +17,7 @@ from .const import (
     VIS_BBA,
     ConnectionName,
 )
-from .events import Event, EventType, subscribe
+from .events import Event, EventType, async_fire_event, subscribe
 from .helpers import log_message
 from .message_tracker import MessageTracker
 
@@ -140,6 +141,7 @@ class MessageRouter:
 
         if event.event_data.message.hex(" ") == DISCONNECT_MESSAGE:
             _LOGGER.info("Requesting Visonic to disconnect")
+            await self.send_ack_message(event)
             await self._connection_coordinator.stop_client_connection(event.client_id)
         else:
             await self.forward_message(ConnectionName.ALARM, event)
@@ -149,9 +151,27 @@ class MessageRouter:
 
         # TODO: Here we need to add a filter to drop messages but still ACK them
         # and also to respond to E0 requests
-        if event.event_data.type == VIS_BBA:
+        # Respond to command requests
+        if event.event_data.message[1:2].hex().lower() == ACTION_COMMAND.lower():
+            await self.do_action_command(event)
+        elif event.event_data.type == VIS_BBA:
             await self.forward_message(ConnectionName.ALARM, event)
             await self.send_ack_message(event)
+
+    async def do_action_command(self, event: Event):
+        """Perform command from ACTION COMMAND message."""
+        command = event.event_data.message[2:3].hex()
+
+        if command == "01":  # Send status
+            await self._connection_coordinator.send_status_message(event.name)
+        elif command == "02":  # Request Visonic disconnection
+            if self._connection_coordinator.visonic_clients:
+                client_id = list(self._connection_coordinator.visonic_clients.keys())[0]
+                await async_fire_event(
+                    Event(
+                        ConnectionName.VISONIC, EventType.REQUEST_DISCONNECT, client_id
+                    )
+                )
 
     async def forward_message(
         self,
