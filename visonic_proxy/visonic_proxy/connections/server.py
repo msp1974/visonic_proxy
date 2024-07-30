@@ -11,7 +11,9 @@ from socket import AF_INET
 from ..builder import MessageBuilder
 from ..const import (
     ACK_TIMEOUT,
+    ADM_ACK,
     KEEPALIVE_TIMER,
+    NAK,
     VIS_ACK,
     ConnectionName,
     ConnectionSourcePriority,
@@ -215,13 +217,13 @@ class ServerConnection:
                 bytes.fromhex(message)
             )
 
-            if pl31_message.type == VIS_ACK:
+            if pl31_message.type == [VIS_ACK, ADM_ACK]:
                 log_message(
                     "%s %s-%s-> %s %s",
                     self.name,
                     client_id,
                     pl31_message.msg_id,
-                    "ACK",
+                    "ACK" if pl31_message.type in [VIS_ACK, ADM_ACK] else "NAK",
                     pl31_message.message.hex(" "),
                     level=5,
                 )
@@ -237,7 +239,7 @@ class ServerConnection:
                 )
 
             # If waiting ack and receive ack, set RTS
-            if not self.is_rts and pl31_message.type == VIS_ACK:
+            if not self.is_rts and pl31_message.type in [VIS_ACK, ADM_ACK, NAK]:
                 log_message(
                     "%s %s-%s received ACK",
                     self.name,
@@ -435,7 +437,7 @@ class ServerConnection:
 
         # Stop watchdog
         if self.watchdog:
-            self.watchdog.stop()
+            await self.watchdog.stop()
 
         for client_id in self.clients:
             log_message("Disconnecting from %s %s", self.name, client_id, level=1)

@@ -8,7 +8,14 @@ import logging
 import re
 from socket import AF_INET
 
-from ..const import ACK_TIMEOUT, VIS_ACK, ConnectionName, ConnectionSourcePriority
+from ..const import (
+    ACK_TIMEOUT,
+    ADM_ACK,
+    NAK,
+    VIS_ACK,
+    ConnectionName,
+    ConnectionSourcePriority,
+)
 from ..decoders.pl31_decoder import PowerLink31MessageDecoder
 from ..events import Event, EventType, async_fire_event_later, fire_event, subscribe
 from ..helpers import log_message
@@ -161,17 +168,13 @@ class ClientConnection:
                 bytes.fromhex(message)
             )
 
-            # TODO: Capture this info to fix issue in PL31 decoder
-            if pl31_message.msg_id == "00R0":
-                _LOGGER.error("NAK: %s", data)
-
-            if pl31_message.type == VIS_ACK:
+            if pl31_message.type in [VIS_ACK, ADM_ACK, NAK]:
                 log_message(
                     "%s %s-%s-> %s %s",
                     self.name,
                     self.parent_connection_id,
                     pl31_message.msg_id,
-                    "ACK",
+                    "ACK" if pl31_message.type in [VIS_ACK, ADM_ACK] else "NAK",
                     pl31_message.message.hex(" "),
                     level=5,
                 )
@@ -187,7 +190,7 @@ class ClientConnection:
                 )
 
             # If waiting ack and receive ack, set RTS
-            if not self.is_rts and pl31_message.type == VIS_ACK:
+            if not self.is_rts and pl31_message.type in [VIS_ACK, ADM_ACK, NAK]:
                 log_message(
                     "%s %s-%s received ACK",
                     self.name,
@@ -366,10 +369,11 @@ class ClientConnection:
         # Stop message sender processor
         if self.message_sender_task and not self.message_sender_task.done():
             self.message_sender_task.cancel()
+            await asyncio.sleep(0)
 
         # Stop watchdog
         if self.watchdog:
-            self.watchdog.stop()
+            await self.watchdog.stop()
 
         self.connected = False
         if self.transport:
