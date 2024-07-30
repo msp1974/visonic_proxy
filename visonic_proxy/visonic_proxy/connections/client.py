@@ -1,6 +1,7 @@
 """Client connection class."""
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 import datetime as dt
 import logging
@@ -72,6 +73,8 @@ class ClientConnection:
 
         self.ready_to_send: bool = True
 
+        self.unsubscribe_listeners: list[Callable] = []
+
     async def connect(self):
         """Initiate connection to host."""
 
@@ -114,13 +117,18 @@ class ClientConnection:
             self.watchdog = Watchdog(self.name, 120)
             self.watchdog.start()
 
-            # listen for watchdog events
-            subscribe(
-                self.name, EventType.REQUEST_DISCONNECT, self.handle_disconnect_event
+            self.unsubscribe_listeners.extend(
+                [
+                    # listen for watchdog events
+                    subscribe(
+                        self.name,
+                        EventType.REQUEST_DISCONNECT,
+                        self.handle_disconnect_event,
+                    ),
+                    # Subscribe to ack timeout events
+                    subscribe(self.name, EventType.ACK_TIMEOUT, self.ack_timeout),
+                ]
             )
-
-            # Subscribe to ack timeout events
-            subscribe(self.name, EventType.ACK_TIMEOUT, self.ack_timeout)
 
         # Fire connected event
         fire_event(Event(self.name, EventType.CONNECTION, self.parent_connection_id))
@@ -323,10 +331,10 @@ class ClientConnection:
             )
             self.release_send_queue()
 
-    def handle_disconnect_event(self, event: Event):
+    async def handle_disconnect_event(self, event: Event):
         """Handle disconnect event."""
         if event.name == self.name:
-            self.shutdown()
+            await self.shutdown()
 
     def disconnected(self, transport: asyncio.Transport):
         """Disconnected callback."""
@@ -350,6 +358,10 @@ class ClientConnection:
             self.parent_connection_id,
             level=1,
         )
+
+        # Unsubscribe listeners
+        for unsub in self.unsubscribe_listeners:
+            unsub()
 
         # Stop message sender processor
         if self.message_sender_task and not self.message_sender_task.done():

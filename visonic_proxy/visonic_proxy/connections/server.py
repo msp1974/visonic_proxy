@@ -1,6 +1,7 @@
 """Handles listening ports for clients to connect to."""
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 import datetime as dt
 import logging
@@ -97,6 +98,8 @@ class ServerConnection:
         self.disconnected_mode: bool = False
         self.disable_acks: bool = False
 
+        self.unsubscribe_listeners: list[Callable] = []
+
     @property
     def client_count(self):
         """Get count of clients."""
@@ -139,12 +142,17 @@ class ServerConnection:
             self.watchdog.start()
 
             # listen for watchdog events
-            subscribe(
-                self.name, EventType.REQUEST_DISCONNECT, self.handle_disconnect_event
+            self.unsubscribe_listeners.extend(
+                [
+                    subscribe(
+                        self.name,
+                        EventType.REQUEST_DISCONNECT,
+                        self.handle_disconnect_event,
+                    ),
+                    # Subscribe to ack timeout events
+                    subscribe(self.name, EventType.ACK_TIMEOUT, self.ack_timeout),
+                ]
             )
-
-            # Subscribe to ack timeout events
-            subscribe(self.name, EventType.ACK_TIMEOUT, self.ack_timeout)
 
         # Start message queue processor
         self.message_sender_task = loop.create_task(
@@ -404,6 +412,10 @@ class ServerConnection:
 
     async def shutdown(self):
         """Disconect the server."""
+
+        # Unsubscribe listeners
+        for unsub in self.unsubscribe_listeners:
+            unsub()
 
         # Stop message sender processor
         if self.message_sender_task and not self.message_sender_task.done():
