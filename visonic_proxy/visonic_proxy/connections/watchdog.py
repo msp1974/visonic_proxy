@@ -43,7 +43,7 @@ class Watchdog:
             ]
             _LOGGER.info("Started %s Watchdog Timer", self.name)
 
-    def stop(self):
+    async def stop(self):
         """Stop watchdog timer."""
         self._run_watchdog = False
 
@@ -53,6 +53,8 @@ class Watchdog:
 
         if self._task and not self._task.done():
             self._task.cancel()
+            while not self._task.done():
+                await asyncio.sleep(0)
 
     async def notify_activity(self, event: Event):
         """Update last activity."""
@@ -67,7 +69,7 @@ class Watchdog:
 
     async def _runner(self):
         while self._run_watchdog:
-            await asyncio.sleep(5)
+            await asyncio.sleep(2)
             if self._last_activity_tracker:
                 clients_to_disconnect = [
                     client_id
