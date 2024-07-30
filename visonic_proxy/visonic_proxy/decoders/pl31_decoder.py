@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import logging
 import re
 
+from ..const import NAK
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -41,6 +43,28 @@ class PowerLink31MessageDecoder:
         crc16 = msg_decode[0:4]
         length = msg_decode[4:8]
         msg_type = re.findall('"([^"]*)"', msg_decode)[0]
+
+        if msg_type == NAK:
+            # A NAK does not have any msgid, panel or account info
+            # Data is empty and followed by a time/date
+            # NAK: b'\nE5630025"NAK"0000R0L0A0[]_10:10:18,07-30-2024\r'
+
+            # Set message to be time/date
+            msg_start = message.find(b"\x5d")
+            msg = message[msg_start + 2 : -1]
+
+            return PowerLink31Message(
+                crc16=crc16,
+                length=length,
+                type=msg_type,
+                msg_id="0000",
+                account_id="0",
+                panel_id="0",
+                message_class="",
+                message=msg,
+                original_message=message,
+            )
+
         msg_id = msg_decode[l_index - 4 : l_index]
         account_id = msg_decode[l_index + 1 : hash_index]
         panel_id = msg_decode[hash_index + 1 : hash_index + 7]
