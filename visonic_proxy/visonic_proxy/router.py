@@ -143,6 +143,10 @@ class MessageRouter:
             _LOGGER.info("Requesting Visonic to disconnect")
             await self.send_ack_message(event)
             await self._connection_coordinator.stop_client_connection(event.client_id)
+
+            # Send message to alarm to keep msg id in sync
+            event.name = ConnectionName.ALARM
+            await self.send_keepalive(event)
         else:
             await self.forward_message(ConnectionName.ALARM, event)
 
