@@ -76,7 +76,10 @@ def _unsubscribe(event_id: str, callback: Callable):
                 EventSubscribers.listeners[event_id].pop(idx)
 
     # Remove key if not more targets
-    if not EventSubscribers.listeners[event_id]:
+    if (
+        EventSubscribers.listeners.get(event_id)
+        and len(EventSubscribers.listeners[event_id]) == 0
+    ):
         del EventSubscribers.listeners[event_id]
 
 
