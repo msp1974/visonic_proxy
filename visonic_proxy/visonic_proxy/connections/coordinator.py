@@ -229,6 +229,7 @@ class ConnectionCoordinator:
             # Initiate messages to send if first connection to Visonic
             if len(self.visonic_clients) == 1:
                 init_messages = [
+                    ("b0 17 51", ConnectionName.ALARM),
                     ("b0 17 24", ConnectionName.ALARM),
                     # ("b0 17 51", ConnectionName.ALARM),
                     # ("b0 03 51 08 ff 08 ff 03 18 24 4b 03 43", ConnectionName.VISONIC),
