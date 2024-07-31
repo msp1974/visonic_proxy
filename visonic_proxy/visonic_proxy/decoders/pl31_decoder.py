@@ -15,13 +15,13 @@ class PowerLink31Message:
 
     crc16: str
     length: str
-    type: str
+    msg_type: str
     msg_id: str
     account_id: str
     panel_id: str
     message_class: str
-    message: bytes
-    original_message: bytes
+    data: bytes
+    raw_data: bytes
 
 
 class PowerLink31MessageDecoder:
@@ -56,13 +56,13 @@ class PowerLink31MessageDecoder:
             return PowerLink31Message(
                 crc16=crc16,
                 length=length,
-                type=msg_type,
+                msg_type=msg_type,
                 msg_id="0000",
                 account_id="0",
                 panel_id="0",
                 message_class="",
-                message=msg,
-                original_message=message,
+                data=msg,
+                raw_data=message,
             )
 
         msg_id = msg_decode[l_index - 4 : l_index]
@@ -74,11 +74,11 @@ class PowerLink31MessageDecoder:
         return PowerLink31Message(
             crc16=crc16,
             length=length,
-            type=msg_type,
+            msg_type=msg_type,
             msg_id=msg_id,
             account_id=account_id,
             panel_id=panel_id,
             message_class=message_class,
-            message=msg,
-            original_message=message,
+            data=msg,
+            raw_data=message,
         )

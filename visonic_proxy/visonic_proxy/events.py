@@ -10,6 +10,7 @@ from inspect import signature
 import logging
 import traceback
 
+from .builder import NonPowerLink31Message
 from .decoders.pl31_decoder import PowerLink31Message
 
 _LOGGER = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class Event:
     name: str
     event_type: int
     client_id: str | None = None
-    event_data: str | int | bytes | PowerLink31Message | None = None
+    event_data: str | PowerLink31Message | NonPowerLink31Message | None = None
 
 
 class EventSubscribers:

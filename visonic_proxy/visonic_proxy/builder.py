@@ -3,19 +3,20 @@
 from dataclasses import dataclass
 import logging
 
+from .const import VIS_ACK, VIS_BBA, ManagedMessages
 from .crc16 import Crc16Arc
+from .decoders.pl31_decoder import PowerLink31Message
 
 _LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class MessageItem:
-    """Class for message ite to add to queue."""
+class NonPowerLink31Message:
+    """Non Powerlink Message."""
 
-    msg_id: int
     msg_type: str
-    message: str
-    msg_data: bytearray
+    msg_id: int
+    data: bytes
 
 
 @dataclass
@@ -42,25 +43,33 @@ class MessageBuilder:
             checksum = 0x00
         return checksum.to_bytes(1, "big")
 
-    def build_ack_message(self, msg_id: int) -> MessageItem:
-        """Build ACK message."""
-        ack = "0d 02 43 ba 0a"
-        return self.build_powerlink31_message(msg_id, ack, is_ack=True)
+    def build_ack_message(self, msg_id: int) -> NonPowerLink31Message:
+        """Build ACK message.
 
-    def build_keep_alive_message(self, msg_id: int) -> MessageItem:
-        """Build keep alive message."""
-        ka = "0d b0 01 6a 00 43 a0 0a"
-        return self.build_powerlink31_message(msg_id, ka)
+        0d 02 43 ba 0a
+        """
+        return NonPowerLink31Message(
+            msg_type=VIS_ACK, msg_id=msg_id, data=bytes.fromhex(ManagedMessages.ACK)
+        )
 
-    def build_eprom_rw_mode_message(self, msg_id: int) -> MessageItem:
+    def build_keep_alive_message(self) -> NonPowerLink31Message:
+        """Build keep alive message.
+
+        0d b0 01 6a 00 43 a0 0a
+        """
+        return NonPowerLink31Message(
+            msg_type=VIS_BBA, msg_id=0, data=bytes.fromhex(ManagedMessages.KEEPALIVE)
+        )
+
+    def build_eprom_rw_mode_message(self) -> str:
         """Build eprom rw mode message."""
-        return self.build_std_request(msg_id, "09")
+        return self.build_std_request("09")
 
-    def build_exit_eprom_rw_mode(self, msg_id: int) -> MessageItem:
+    def build_exit_eprom_rw_mode(self) -> str:
         """Build exit eprom mode message."""
-        return self.build_std_request(msg_id, "0f")
+        return self.build_std_request("0f")
 
-    def message_preprocessor(self, msg_id: int, msg: bytes) -> MessageItem:
+    def message_preprocessor(self, msg: bytes) -> NonPowerLink31Message:
         r"""Preprocessor for using injector to send message to alarm.
 
         Messages can be injected in:
@@ -68,12 +77,15 @@ class MessageBuilder:
         Partial format - b0 01 6a 43 \ a2 00 00 08 00 00 00 00 00 00 00 43
         Short format (for B0 messages only) - b0 6a / b0 17 18 24
         """
+        msg_type = VIS_BBA
+
         if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
             if msg[1:2] == b"\x02":
                 # Received ack message.  Use build_ack_message to ensure correct ACK type
-                message = self.build_ack_message(msg_id)
+                message = self.build_ack_message()
+                msg_type = VIS_ACK
             else:
-                message = self.build_powerlink31_message(msg_id, msg.hex(" "))
+                message = msg.hex(" ")
             return message
 
         # Else deal with shortcut commands
@@ -81,62 +93,17 @@ class MessageBuilder:
             if msg[-1:] != b"\x43":
                 command = msg[1:2].hex()
                 params = msg[2:].hex(" ")
-                message = self.build_b0_request(msg_id, command, params)
+                message = self.build_b0_request(command, params)
             else:
-                message = self.build_b0_partial_request(msg_id, msg.hex(" "))
+                message = self.build_b0_partial_request(msg.hex(" "))
         else:
-            message = self.build_std_request(msg_id, msg)
-        return message
+            message = self.build_std_request(msg)
 
-    def build_powerlink31_message(
-        self, msg_id: int, message: str, is_ack: bool = False
-    ) -> MessageItem:
-        r"""Build initial part of B0 message.
+        return NonPowerLink31Message(
+            msg_type=msg_type, msg_id=0, data=bytes.fromhex(message)
+        )
 
-        format is
-        0a [CRC16][Length][MSG TYPE][MSG ID]L[ACCT NO]#[ALARM SERIAL][COMMAND]\r
-
-        0a 6BAF   001D    "VIS-BBA" 5564    L 001234  # 2A4CC3       [See standard or b0 below]0d
-         ie
-        0a 36 42 41 46 30 30 31 44 22 56 49 53 2d 41 43 4b 22 35 35 36 34 4c 30 23 32 41 34 43 43 33 5b 0d 02 43 ba 0a 5d 0d
-        b'\n6BAF001D"VIS-ACK"5564L0#2A4CC3[\r\x02C\xba\n]\r'
-
-        Notes
-        CRC16 is CRC16ARC of message from first " to last ]
-        Length is from first " to last ]
-        "VIS-ACK"/"VIS-BBA" - ACK for msg acknowldge, BBA for command/response message - have seen some *ADM-CID and *ACK
-        MSG_ID increases with each BBA message.  ACK should be same as BBA it is ACK'ing
-        ACCT_NO - message to Alarm is 0, from alarm is account no.
-
-        """
-
-        msg_initiator = "\n"
-        msg_type = "VIS-ACK" if is_ack else "VIS-BBA"
-
-        msg_start = f'"{msg_type}"{msg_id:04}L{self.account}#{self.alarm_serial}['
-        msg_end = "]"
-        msg_terminator = "\r"
-
-        base_msg = bytearray()
-        base_msg.extend(map(ord, msg_start))
-        base_msg.extend(bytearray.fromhex(message))
-        base_msg.extend(map(ord, msg_end))
-
-        # generate message prefix
-        # crc
-        crc16 = Crc16Arc.calchex(base_msg)
-        msg_length = len(base_msg).to_bytes(2, byteorder="big").hex()
-
-        msg = bytearray()
-        msg.extend(map(ord, msg_initiator))
-        msg.extend(map(ord, crc16.upper()))
-        msg.extend(map(ord, msg_length))
-        msg.extend(base_msg)
-        msg.extend(map(ord, msg_terminator))
-
-        return MessageItem(msg_id, msg_type, message, msg)
-
-    def build_std_request(self, msg_id: int, command: bytes) -> MessageItem:
+    def build_std_request(self, command: bytes) -> str:
         r"""Build standard message to alarm.
 
         Input is
@@ -155,14 +122,10 @@ class MessageBuilder:
         msg = command.hex(" ")
         checksum = self._calculate_message_checksum(bytes.fromhex(msg))
         msg += f" {checksum.hex()}"
-        message = f"0d {msg} 0a"
 
-        # Now build this command into a powerlink31 message
-        return self.build_powerlink31_message(msg_id, message)
+        return f"0d {msg} 0a"
 
-    def build_b0_request(
-        self, msg_id: int, command: str, params: str = ""
-    ) -> MessageItem:
+    def build_b0_request(self, command: str, params: str = "") -> str:
         """Build b0 message to alarm.
 
         0d b0 01 [command and params] 43 [checksum] 0a
@@ -179,21 +142,17 @@ class MessageBuilder:
 
         checksum = self._calculate_message_checksum(bytes.fromhex(msg))
         msg += f" {checksum.hex()}"
-        message = f"0d {msg} 0a"
 
-        # Now build this command into a powerlink31 message
-        return self.build_powerlink31_message(msg_id, message)
+        return f"0d {msg} 0a"
 
-    def build_b0_partial_request(self, msg_id: int, msg: str) -> MessageItem:
+    def build_b0_partial_request(self, msg: str) -> str:
         """Wrap b0 full command.
 
         input message should start b0 and end 43
         """
         checksum = self._calculate_message_checksum(bytes.fromhex(msg))
         msg += f" {checksum.hex()}"
-        message = f"0d {msg} 0a"
-        # Now build this command into a powerlink31 message
-        return self.build_powerlink31_message(msg_id, message)
+        return f"0d {msg} 0a"
 
     def _build_b0_generic_request(self, cmd: int, params: str = "") -> str:
         """Build generic request.
@@ -221,7 +180,7 @@ class MessageBuilder:
         if params:
             no_requests = len(params.split(" "))
             length = 6 + no_requests
-            return f"{cmd} {length:02x} 01 FF 08 FF {no_requests:02x} {params} 00"
+            return f"{cmd} {length:02x} 01 ff 08 ff {no_requests:02x} {params} 00"
 
         return self._build_b0_generic_request(cmd, params)
 
@@ -277,3 +236,62 @@ class MessageBuilder:
         msg += f" {params}"
 
         return msg
+
+    def build_powerlink31_message(
+        self, msg_id: int, message: bytes, is_ack: bool = False
+    ) -> PowerLink31Message:
+        r"""Build initial part of B0 message.
+
+        format is
+        0a [CRC16][Length][MSG TYPE][MSG ID]L[ACCT NO]#[ALARM SERIAL][COMMAND]\r
+
+        0a 6BAF   001D    "VIS-BBA" 5564    L 001234  # 2A4CC3       [See standard or b0 below]0d
+         ie
+        0a 36 42 41 46 30 30 31 44 22 56 49 53 2d 41 43 4b 22 35 35 36 34 4c 30 23 32 41 34 43 43 33 5b 0d 02 43 ba 0a 5d 0d
+        b'\n6BAF001D"VIS-ACK"5564L0#2A4CC3[\r\x02C\xba\n]\r'
+
+        Notes
+        CRC16 is CRC16ARC of message from first " to last ]
+        Length is from first " to last ]
+        "VIS-ACK"/"VIS-BBA" - ACK for msg acknowldge, BBA for command/response message - have seen some *ADM-CID and *ACK
+        MSG_ID increases with each BBA message.  ACK should be same as BBA it is ACK'ing
+        ACCT_NO - message to Alarm is 0, from alarm is account no.
+
+        """
+        message = message.hex(" ")
+
+        msg_initiator = "\n"
+        msg_type = "VIS-ACK" if is_ack else "VIS-BBA"
+
+        msg_start = f'"{msg_type}"{msg_id:04}L{self.account}#{self.alarm_serial}['
+        msg_end = "]"
+        msg_terminator = "\r"
+
+        base_msg = bytearray()
+        base_msg.extend(map(ord, msg_start))
+        base_msg.extend(bytearray.fromhex(message))
+        base_msg.extend(map(ord, msg_end))
+
+        # generate message prefix
+        # crc
+        crc16 = Crc16Arc.calchex(base_msg)
+        msg_length = len(base_msg).to_bytes(2, byteorder="big")
+
+        msg = bytearray()
+        msg.extend(map(ord, msg_initiator))
+        msg.extend(map(ord, crc16.upper()))
+        msg.extend(map(ord, msg_length.hex()))
+        msg.extend(base_msg)
+        msg.extend(map(ord, msg_terminator))
+
+        return PowerLink31Message(
+            crc16=crc16,
+            length=msg_length,
+            msg_type=msg_type,
+            msg_id=msg_id,
+            account_id=self.account,
+            panel_id=self.alarm_serial,
+            message_class="",
+            data=bytearray.fromhex(message),
+            raw_data=msg,
+        )

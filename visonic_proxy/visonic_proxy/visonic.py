@@ -43,6 +43,7 @@ class Runner:
                 level=6,
             )
 
+            """
             alarm_q = cc.alarm_server.sender_queue.qsize()
             visonic_q = [
                 client.sender_queue.qsize() for _, client in cc.visonic_clients.items()
@@ -63,6 +64,7 @@ class Runner:
                 cc.monitor_server.is_rts,
                 level=6,
             )
+            """
 
     async def stop(self):
         """Stop."""

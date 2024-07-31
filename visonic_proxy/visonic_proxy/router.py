@@ -13,7 +13,6 @@ from .const import (
     ADM_ACK,
     ADM_CID,
     DISCONNECT_MESSAGE,
-    VIS_ACK,
     VIS_BBA,
     ConnectionName,
 )
@@ -80,7 +79,7 @@ class MessageRouter:
     def set_panel_data(self, event: Event):
         """Set panel data in message builder."""
         # TODO: Better way to do this!
-        if event.name == ConnectionName.ALARM and event.event_data.type not in [
+        if event.name == ConnectionName.ALARM and event.event_data.msg_type not in [
             ADM_CID,
             ADM_ACK,
         ]:
@@ -93,7 +92,7 @@ class MessageRouter:
         """Handle data received event."""
 
         # Event data should be a PL31 decoded message
-        pl31_message = event.event_data
+        message = event.event_data
 
         # TODO: If receive *ADM-CID this will not ack or do anything to forward
         # Need to fix that
@@ -103,7 +102,7 @@ class MessageRouter:
 
             # Update tracking info
             try:
-                message_no = int(pl31_message.msg_id)
+                message_no = int(message.msg_id)
                 MessageTracker.last_message_no = message_no
                 MessageTracker.last_message_timestamp = dt.datetime.now(dt.UTC)
             except ValueError:
@@ -113,7 +112,7 @@ class MessageRouter:
                     event.client_id,
                 )
                 _LOGGER.warning("Message: %s", event.event_data(" "))
-                _LOGGER.warning("Powerlink: %s", pl31_message)
+                _LOGGER.warning("Powerlink: %s", message)
                 return
 
         func = f"{event.name.lower()}_router"
@@ -123,14 +122,14 @@ class MessageRouter:
     async def alarm_router(self, event: Event):
         """Route Alarm received message."""
         if self._connection_coordinator.is_disconnected_mode:
-            if event.event_data.type == VIS_BBA:
+            if event.event_data.msg_type == VIS_BBA:
                 await self.send_ack_message(event)
         else:
             await self.forward_message(ConnectionName.VISONIC, event)
 
         # Forward to Alarm Monitor connection
         # Alarm monitor connections do not have same connection id so, send to all
-        if event.event_data.type == VIS_BBA:
+        if event.event_data.msg_type == VIS_BBA:
             if self._connection_coordinator.monitor_server.clients:
                 for client_id in self._connection_coordinator.monitor_server.clients:
                     event.client_id = client_id
@@ -139,32 +138,45 @@ class MessageRouter:
     async def visonic_router(self, event: Event):
         """Handle received data."""
 
-        if event.event_data.message.hex(" ") == DISCONNECT_MESSAGE:
-            _LOGGER.info("Requesting Visonic to disconnect")
+        if event.event_data.data.hex(" ") == DISCONNECT_MESSAGE:
             await self.send_ack_message(event)
+            await asyncio.sleep(1)
+            _LOGGER.info("Requesting Visonic to disconnect")
             await self._connection_coordinator.stop_client_connection(event.client_id)
 
             # Send message to alarm to keep msg id in sync
             event.name = ConnectionName.ALARM
             await self.send_keepalive(event)
         else:
+            # if event.event_data.msg_type == VIS_BBA:
+            #    await self.send_ack_message(event)
+            # if event.event_data.msg_type != VIS_ACK:
             await self.forward_message(ConnectionName.ALARM, event)
 
     async def alarm_monitor_router(self, event: Event):
-        """Handle received data."""
+        """Handle received data.
+
+        Will receive NonPowerLink31Message in event_data
+        """
 
         # TODO: Here we need to add a filter to drop messages but still ACK them
         # and also to respond to E0 requests
         # Respond to command requests
-        if event.event_data.message[1:2].hex().lower() == ACTION_COMMAND.lower():
+        if event.event_data.data[1:2].hex().lower() == ACTION_COMMAND.lower():
             await self.do_action_command(event)
-        elif event.event_data.type == VIS_BBA:
-            await self.forward_message(ConnectionName.ALARM, event)
+        elif event.event_data.msg_type == VIS_BBA:
             await self.send_ack_message(event)
+            # Forward to first alarm client
+            if (
+                client_id
+                := self._connection_coordinator.alarm_server.get_first_client_id()
+            ):
+                event.client_id = client_id
+            await self.forward_message(ConnectionName.ALARM, event)
 
     async def do_action_command(self, event: Event):
         """Perform command from ACTION COMMAND message."""
-        command = event.event_data.message[2:3].hex()
+        command = event.event_data.data[2:3].hex()
 
         if command == "01":  # Send status
             await self._connection_coordinator.send_status_message(event.name)
@@ -187,11 +199,6 @@ class MessageRouter:
             if not self._connection_coordinator.visonic_clients:
                 return
 
-        if destination == ConnectionName.ALARM_MONITOR:
-            message = event.event_data.message
-        else:
-            message = event.event_data.original_message
-
         # TODO: Add here to send or not send based on is connected and a
         # param that just blocks sending.
 
@@ -199,18 +206,14 @@ class MessageRouter:
             source=event.name,
             destination=destination,
             client_id=event.client_id,
-            message_id=event.event_data.msg_id,
-            readable_message=event.event_data.message.hex(" "),
-            message=message,
-            is_ack=event.event_data.type == VIS_ACK,
-            requires_ack=event.event_data.type == VIS_BBA,
+            message=event.event_data,
         )
+
         log_message(
-            "FORWARDER: %s -> %s %s %s",
+            "FORWARDER: %s -> %s %s",
             event.name,
             destination,
             event.client_id,
-            int(event.event_data.msg_id),
             level=6,
         )
 
@@ -218,26 +221,16 @@ class MessageRouter:
         """Send ACK message."""
         ack_message = self._message_builer.build_ack_message(event.event_data.msg_id)
         await self._connection_coordinator.queue_message(
-            ConnectionName.CM,
-            event.name,
-            event.client_id,
-            event.event_data.msg_id,
-            ack_message.message,
-            ack_message.msg_data,
-            is_ack=True,
-            requires_ack=False,
+            ConnectionName.CM, event.name, event.client_id, ack_message
         )
 
     async def send_keepalive(self, event: Event):
         """Handle sending keepalive."""
         # TODO: Put in coordinator
-        message_no = MessageTracker.get_next()
-        ka_message = self._message_builer.build_keep_alive_message(message_no)
+        ka_message = self._message_builer.build_keep_alive_message()
         await self._connection_coordinator.queue_message(
             ConnectionName.CM,
             event.name,
             event.client_id,
-            message_no,
-            "KEEPALIVE",
-            ka_message.msg_data,
+            ka_message,
         )
