@@ -13,11 +13,14 @@ from ..builder import MessageBuilder, NonPowerLink31Message
 from ..const import (
     ACK_TIMEOUT,
     ADM_ACK,
-    DUH,
+    ALARM_MONITOR_SENDS_ACKS,
     NAK,
+    PROXY_MODE,
     VIS_ACK,
+    VIS_BBA,
     ConnectionName,
     ConnectionSourcePriority,
+    ConnectionStatus,
 )
 from ..decoders.pl31_decoder import PowerLink31Message, PowerLink31MessageDecoder
 from ..events import (
@@ -28,11 +31,20 @@ from ..events import (
     fire_event,
     subscribe,
 )
-from ..helpers import log_message
+from ..helpers import get_connection_id, log_message
 from ..message_tracker import MessageTracker
 from .message import QueuedMessage
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class WaitingAck:
+    """Class to hold waiting ack info."""
+
+    name: ConnectionName
+    client_id: str
+    msg_id: int
 
 
 class QID:
@@ -50,9 +62,10 @@ class QID:
 class ConnectionInfo:
     """Store connection info."""
 
+    status: ConnectionStatus
     connection_priority: int
     requires_ack: bool
-    uses_pl31_messages: bool
+    send_non_pl31_messages: bool
     last_received: dt.datetime = None
     last_sent: dt.datetime = None
 
@@ -79,10 +92,12 @@ class FlowManager:
 
         self.sender_queue = asyncio.PriorityQueue()
         self.rts = asyncio.Event()
+        self.pending_has_connected = asyncio.Event()
 
         self.rts.set()
+        self.pending_has_connected.set()
 
-        self.do_not_route_ack: int = None
+        self.ack_awaiter: WaitingAck = None
 
         # Start message queue processor
         loop = asyncio.get_running_loop()
@@ -90,7 +105,7 @@ class FlowManager:
             self._queue_processor(), name="Flow Manager Send Queue Processor"
         )
         # Subscribe to ack timeout events
-        (subscribe("ALL", EventType.ACK_TIMEOUT, self.ack_timeout),)
+        subscribe("ALL", EventType.ACK_TIMEOUT, self.ack_timeout)
 
     async def shutdown(self):
         """Shutdown flow manager."""
@@ -98,40 +113,57 @@ class FlowManager:
             self.message_sender_task.cancel()
             await asyncio.sleep(0)
 
-    def _get_connection_id(self, name: ConnectionName, client_id: str) -> str:
-        """Return connection id."""
-        return f"{name}_{client_id}"
-
     def _get_connection_info(
         self, name: ConnectionName, client_id: str
     ) -> tuple[str, ConnectionInfo | None]:
         """Return connection info entry."""
-        connection_id = self._get_connection_id(name, client_id)
+        connection_id = get_connection_id(name, client_id)
         return connection_id, self.connection_info.get(connection_id)
 
     def register_connection(
         self,
         name: ConnectionName,
         client_id: str,
+        connection_status: ConnectionStatus,
         connection_priority: int = 1,
         requires_ack: bool = True,
-        uses_pl31_messages: bool = True,
+        send_non_pl31_messages: bool = False,
     ):
         """Register a connection to manage within flow manager."""
-        connection_id = self._get_connection_id(name, client_id)
+        connection_id = get_connection_id(name, client_id)
+
+        # We hold the queue if trying to process a message destined for a pending
+        # connection.  If that connection connects, release the send queue.
+        if (
+            connection_id in self.connection_info
+            and self.connection_info[connection_id].status
+            == ConnectionStatus.CONNECTING
+            and connection_status == ConnectionStatus.CONNECTED
+        ):
+            self.pending_has_connected.set()
+
         self.connection_info[connection_id] = ConnectionInfo(
+            status=connection_status,
             connection_priority=connection_priority,
             requires_ack=requires_ack,
-            uses_pl31_messages=uses_pl31_messages,
+            send_non_pl31_messages=send_non_pl31_messages,
         )
-        _LOGGER.info("%s %s registered with flow manager", name, client_id)
+        log_message(
+            "%s %s registered with flow manager as %s",
+            name,
+            client_id,
+            connection_status.name,
+            level=5,
+        )
 
     def unregister_connection(self, name: ConnectionName, client_id: str):
         """Unregister connection from flow manager."""
         connection_id, connection_info = self._get_connection_info(name, client_id)
         if connection_info:
             del self.connection_info[connection_id]
-            _LOGGER.info("%s %s unregistered with flow manager", name, client_id)
+            log_message(
+                "%s %s unregistered with flow manager", name, client_id, level=5
+            )
 
     def data_received(self, source: ConnectionName, client_id: str, data: bytes):
         """Handle callback for when data received on a connection."""
@@ -143,7 +175,7 @@ class FlowManager:
         # Update last received for connection in conneciton info - helps sender decide when to send
         # Know if in connected or disconnected mode
         # Fire event to send to router and other interested parties (like watchdog)
-        _LOGGER.info("%s %s -> %s", source, client_id, data)
+        log_message("%s %s -> %s", source, client_id, data, level=4)
         connection_id, connection_info = self._get_connection_info(source, client_id)
 
         if not connection_info:
@@ -154,18 +186,18 @@ class FlowManager:
         # Update client last received
         self.connection_info[connection_id].last_received = dt.datetime.now()
 
+        # Filter messages to ignore
+
         decoded_messages: list[PowerLink31Message | NonPowerLink31Message] = []
 
-        if (
-            not connection_info.uses_pl31_messages
-            or source == ConnectionName.ALARM_MONITOR
-        ):
+        if connection_info.send_non_pl31_messages:
             # Convert to a PL31 message
             decoded_messages.append(MessageBuilder().message_preprocessor(data))
+            # _LOGGER.info("DECODED MSGS: %s", decoded_messages)
 
         else:
             # It is possible that some messages are multiple messages combined.
-            # Only way I can think to handle this is to split them, process each
+            # Need to split them, process each
             # in turn and fire DATA RECEIVED message for each.
             split_after = ["5d 0d"]
             rx = re.compile(rf'(?<=({"|".join(split_after)}))[^\b]')
@@ -182,15 +214,16 @@ class FlowManager:
                 ]
 
         # Now log and raise events for each message
+        destination = None
+        destination_client_id = None
         for decoded_message in decoded_messages:
-            is_pl31 = isinstance(decoded_message, PowerLink31Message)
-
-            if decoded_message.msg_type == [VIS_ACK, ADM_ACK]:
+            # _LOGGER.info("DECODED MSG: %s", decoded_message)
+            if decoded_message.msg_type in [VIS_ACK, ADM_ACK]:
                 log_message(
                     "%s %s-%s-> %s %s",
                     source,
                     client_id,
-                    decoded_message.msg_id if is_pl31 else 0,
+                    decoded_message.msg_id,
                     "ACK" if decoded_message.msg_type in [VIS_ACK, ADM_ACK] else "NAK",
                     decoded_message.data.hex(" "),
                     level=5,
@@ -200,48 +233,68 @@ class FlowManager:
                     "%s %s-%s-> %s %s",
                     source,
                     client_id,
-                    decoded_message.msg_id if is_pl31 else 0,
+                    decoded_message.msg_id,
                     "MSG",
                     decoded_message.data.hex(" "),
                     level=2,
                 )
 
             # If waiting ack and receive ack, set RTS
+            # TODO: Is this logic right?
             if not self.is_rts and decoded_message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
                 log_message(
-                    "%s %s-%s received ACK",
+                    "%s %s-%s received %s,",
                     source,
                     client_id,
-                    decoded_message.msg_id if is_pl31 else 0,
-                    level=5,
+                    decoded_message.msg_id,
+                    decoded_message.msg_type,
+                    level=1 if decoded_message.msg_type == NAK else 5,
                 )
                 self.release_send_queue()
 
-                if self.do_not_route_ack and self.do_not_route_ack == int(
-                    decoded_message.msg_id
+                if self.ack_awaiter and (
+                    int(decoded_message.msg_id) == int(self.ack_awaiter.msg_id)
+                    or int(decoded_message.msg_id) == int(self.ack_awaiter.msg_id) + 1
+                    or (int(decoded_message.msg_id) == 0 and not PROXY_MODE)
                 ):
-                    self.do_not_route_ack = None
-                    _LOGGER.info("DO NOT PASS ACK RECEIVED: %s", decoded_message.msg_id)
-                    return
+                    # If we were awaitng a specific ACK, add the waiter info to the event
+                    # Sometimes Alarm sends a higher msg id in the ACK, accept a +1 tolerance
+                    destination = self.ack_awaiter.name
+                    destination_client_id = self.ack_awaiter.client_id
+
+                    if decoded_message.msg_id == 0:
+                        # Assume this is for us if not in Proxy Mode
+                        decoded_message.msg_id = self.ack_awaiter.msg_id
+
+                    log_message(
+                        "Waited ACK received: %s -> %s",
+                        decoded_message.msg_id,
+                        self.ack_awaiter.name,
+                        level=4,
+                    )
+                    # Reset awaiting ack
+                    self.ack_awaiter = None
 
             # Send message to listeners
             fire_event(
                 Event(
-                    source,
-                    EventType.DATA_RECEIVED,
-                    client_id,
+                    name=source,
+                    event_type=EventType.DATA_RECEIVED,
+                    client_id=client_id,
                     event_data=decoded_message,
+                    destination=destination,
+                    destination_client_id=destination_client_id,
                 )
             )
 
     async def queue_message(
         self,
         source: ConnectionName,
+        source_client_id: str,
         destination: ConnectionName,
-        client_id: str,
+        destination_client_id: str,
         message: PowerLink31Message | NonPowerLink31Message,
         requires_ack: bool = True,
-        do_not_route_ack: bool = False,
     ):
         """Add message to send queue for processing."""
 
@@ -250,17 +303,14 @@ class FlowManager:
         queue_entry = QueuedMessage(
             QID.get_next(),
             source,
+            source_client_id,
             destination,
-            client_id,
+            destination_client_id,
             message,
             requires_ack,
-            do_not_route_ack,
         )
         await self.sender_queue.put((priority, queue_entry))
         return True
-
-        # _LOGGER.warning("No connected clients. Message will be dropped")
-        # return False
 
     async def _queue_processor(self):
         """Process send queue."""
@@ -273,37 +323,53 @@ class FlowManager:
             message: QueuedMessage = queue_message[1]
 
             connection_id, connection_info = self._get_connection_info(
-                message.destination, message.client_id
+                message.destination, message.destination_client_id
             )
 
             if connection_info:
+                # Here we wait if the message is destined for a pending connection until
+                # it has connected.
+                if connection_info.status == ConnectionStatus.CONNECTING:
+                    self.pending_has_connected.clear()
+
+                # Wait for the pending connection.  If it is not a pending connection, this will
+                # just continuie.
+                await self.pending_has_connected.wait()
+
                 msg_id = await self._send_message(message)
 
-                if message.do_not_route_ack:
-                    # Messages from CM will have do not route ack set to ensure we
-                    # do not send the ACK to Visonic when it is not expecting it.
-                    # Fixes comms failure trouble on app.
-                    self.do_not_route_ack = int(msg_id)
-                    _LOGGER.info("DO NOT PASS ACK SET TO %s", self.do_not_route_ack)
+                # TODO: Move this decision into the router.py
+                # Set some overides here for known messages that do not get ACKd
+                if (
+                    message.destination == ConnectionName.ALARM_MONITOR
+                    and not ALARM_MONITOR_SENDS_ACKS
+                ):
+                    message.requires_ack = False
+
+                if message.message.msg_type == VIS_BBA and message.requires_ack:
+                    # Hold which connection requires the ACK we receive
+                    self.ack_awaiter = WaitingAck(
+                        message.source, message.source_client_id, msg_id
+                    )
+                    log_message("Awaiting ACK: %s", self.ack_awaiter, level=4)
 
                 # Send message to listeners
                 await async_fire_event(
                     Event(
                         message.destination,
                         EventType.DATA_SENT,
-                        message.client_id,
+                        message.destination_client_id,
                         message.message.data,
                     )
                 )
 
                 if (
-                    message.message.msg_type not in [VIS_ACK, ADM_ACK, NAK, DUH]
+                    message.message.msg_type not in [VIS_ACK, ADM_ACK]
                     and message.requires_ack
                     and connection_info.requires_ack
-                    and message.destination != ConnectionName.ALARM_MONITOR
                 ):
                     await self.wait_for_ack(
-                        message.destination, message.client_id, msg_id
+                        message.destination, message.destination_client_id, msg_id
                     )
 
             # Message done even if not sent due to no clients
@@ -369,5 +435,5 @@ class FlowManager:
     async def ack_timeout(self, event: Event):
         """ACK timeout callback."""
 
-        log_message("ACK TIMEOUT: %s", event.name, level=5)
+        _LOGGER.warning("Timeout waiting for ACK from %s", event.name)
         self.release_send_queue()

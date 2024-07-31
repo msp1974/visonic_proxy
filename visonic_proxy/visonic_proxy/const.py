@@ -16,16 +16,22 @@ LOG_FILES_TO_KEEP = 10
 # 4 same as 3 plus acks
 # 5 same as 4 plus web messages
 # 6 same as 5 plus full PL31 raw message and not forwarded messages
-MESSAGE_LOG_LEVEL = 3
+MESSAGE_LOG_LEVEL = 1
 
 
 VISONIC_HOST = "52.58.105.181"
 MESSAGE_PORT = 5001
 ALARM_MONITOR_PORT = 5002
 VISONIC_MONITOR_PORT = 5003
+VISONIC_RECONNECT_INTERVAL = 10
 KEEPALIVE_TIMER = 30  # Send Keepalive if no messages in 30 seconds
 WATHCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill it.
 ACK_TIMEOUT = 3  # How long to wait for ACK before continuing
+ALARM_MONITOR_SENDS_ACKS = False
+ALARM_MONITOR_NEEDS_ACKS = True
+ACK_B0_03_MESSAGES = True
+
+
 TEXT_UNKNOWN = "UNKNOWN"
 
 VIS_ACK = "VIS-ACK"
@@ -52,10 +58,10 @@ class ConnectionType(StrEnum):
 class ConnectionName(StrEnum):
     """Connection name enum."""
 
-    CM = "Connection_Manager"
+    CM = "ConnectionManager"
     ALARM = "Alarm"
     VISONIC = "Visonic"
-    ALARM_MONITOR = "Alarm_Monitor"
+    ALARM_MONITOR = "HA"
     VISONIC_MONITOR = "Visonic_Monitor"
 
 
@@ -68,9 +74,21 @@ class ConnectionSourcePriority(IntEnum):
     ALARM_MONITOR = 3
 
 
+class ConnectionStatus(IntEnum):
+    """Connection status."""
+
+    CONNECTING = 0
+    CONNECTED = 1
+    DISCONNECTING = 2
+
+
 class ManagedMessages(StrEnum):
     """Messages that get handled in some way."""
 
     ACK = "0d 02 43 ba 0a"
     DISCONNECT_MESSAGE = "0d ad 0a 00 00 00 00 00 00 00 00 00 43 05 0a"
+    HELLO = "0d 06 f9 0a"
     KEEPALIVE = "0d b0 01 6a 00 43 a0 0a"
+    BUMP = "0d 09 f6 0a"  # Alarm does ACK
+    STOP = "0d 0b f4 0a"  # Alarm doesnt ACK
+    EXIT = "0d 0f f0 0a"  # Alarm does ACK

@@ -59,7 +59,7 @@ class ServerConnection:
 
         self.clients: dict[str, ClientConnection] = {}
 
-        self.disconnected_mode: bool = False
+        self.disconnected_mode: bool = True
         self.disable_acks: bool = False
 
         self.unsubscribe_listeners: list[Callable] = []
@@ -133,7 +133,14 @@ class ServerConnection:
         _LOGGER.debug("Connections: %s", self.clients)
 
         # Fire connected event
-        fire_event(Event(self.name, EventType.CONNECTION, client_id))
+        fire_event(
+            Event(
+                name=self.name,
+                event_type=EventType.CONNECTION,
+                client_id=client_id,
+                event_data={"send_non_pl31_messages": self.send_non_pl31_messages},
+            )
+        )
 
         # If needs keepalive timer, start it
         if self.run_keepalive and not self.keep_alive_timer_task:
@@ -159,8 +166,8 @@ class ServerConnection:
     async def send_message(self, queued_message: QueuedMessage):
         """Send message."""
         # Check client is connected
-        if queued_message.client_id in self.clients:
-            client = self.clients[queued_message.client_id]
+        if queued_message.destination_client_id in self.clients:
+            client = self.clients[queued_message.destination_client_id]
 
             if client.transport:
                 if isinstance(queued_message.message, NonPowerLink31Message):
@@ -185,28 +192,28 @@ class ServerConnection:
                     "%s->%s %s-%s %s %s",
                     queued_message.source,
                     self.name,
-                    queued_message.client_id,
+                    queued_message.destination_client_id,
                     msg_id
                     if isinstance(queued_message.message, NonPowerLink31Message)
                     else queued_message.message.msg_id,
-                    "ACK" if queued_message.message.msg_type == VIS_ACK else "MSG",
+                    queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
-                    level=3,
+                    level=3 if queued_message.message.msg_type == VIS_ACK else 1,
                 )
                 # Send message to listeners
                 await async_fire_event(
                     Event(
-                        self.name,
-                        EventType.DATA_SENT,
-                        queued_message.client_id,
-                        queued_message.message.data,
+                        name=self.name,
+                        event_type=EventType.DATA_SENT,
+                        client_id=queued_message.destination_client_id,
+                        event_data=queued_message.message,
                     )
                 )
                 return True
         _LOGGER.error(
             "Unable to send message to %s %s",
             queued_message.destination,
-            queued_message.client_id,
+            queued_message.destination_client_id,
         )
 
     def client_disconnected(self, transport: asyncio.Transport):
@@ -236,7 +243,11 @@ class ServerConnection:
                 self.keep_alive_timer_task = None
 
         # Send message to listeners
-        fire_event(Event(self.name, EventType.DISCONNECTION, client_id))
+        fire_event(
+            Event(
+                name=self.name, event_type=EventType.DISCONNECTION, client_id=client_id
+            )
+        )
 
     def handle_disconnect_event(self, event: Event):
         """Handle disconnect event."""

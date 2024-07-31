@@ -9,6 +9,7 @@ import json
 import logging
 import os
 from ssl import PROTOCOL_TLS_SERVER, SSLContext
+import time
 import traceback
 
 import requests
@@ -32,13 +33,11 @@ class WebResponseController:
     """Class for webresponse control."""
 
     loop: asyncio.AbstractEventLoop = None
-    request_connect: bool = False
+    request_connect: bool = True  # Set to True for startup to make Alarm connect
 
 
 class RequestHandler(BaseHTTPRequestHandler):
     """HTTP handler."""
-
-    response_controller = WebResponseController()
 
     def log_message(self, *args):
         """Override log messages."""
@@ -112,7 +111,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                     _LOGGER.info("cannot decode response")
                     response = {}
 
-                if self.response_controller.request_connect:
+                if WebResponseController.request_connect:
+                    log_message("WEBSERVER: Request to connect is set", level=6)
                     resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
                 else:
                     resp = res.content
@@ -125,7 +125,11 @@ class RequestHandler(BaseHTTPRequestHandler):
 
                 if not self.wfile.closed:
                     for k, v in res.headers.items():
-                        self.send_header(k, v)
+                        if k == "Content-Length":
+                            # Ajust content length if we have added connect command
+                            self.send_header(k, len(resp))
+                        else:
+                            self.send_header(k, v)
                     self.end_headers()
                     self.wfile.write(resp)
                     self.wfile.flush()
@@ -141,7 +145,6 @@ class RequestHandler(BaseHTTPRequestHandler):
                         resp["cmds"] = [{"name": "connect", "params": {"port": 5001}}]
 
                     resp.update({"ka_time": 10, "version": 3})
-
                     response = json.dumps(resp)
                     bin_resp = bytes(f"{response}\n", "ascii")
 
@@ -150,9 +153,22 @@ class RequestHandler(BaseHTTPRequestHandler):
                         resp,
                         level=5,
                     )
+
+                    self.send_header(
+                        "Date",
+                        time.strftime("%a, %d %b %Y %H:%M:%S %Z", time.gmtime()),
+                    )
                     self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", len(resp))
+                    self.send_header("Content-Length", len(bin_resp))
                     self.send_header("Connection", "keep-alive")
+                    self.send_header(
+                        "Content-Security-Policy",
+                        "default-src 'self'; frame-src 'self' https://*.google.com; style-src 'self' 'unsafe-inline' https://*.googleapis.com; font-src 'self' data: https:; connect-src 'self' ws://52.58.105.181 wss://52.58.105.181 https://*.google.com https://*.googleapis.com; script-src 'self' https://*.google.com https://*.googleapis.com 'unsafe-inline' 'unsafe-eval'; img-src 'self' https://*.google.com https://*.googleapis.com data: https://*.gstatic.com https://*.google.com",
+                    )
+                    self.send_header("Strict-Transport-Security", "max-age=31536000")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("X-Frame-Options", "SAMEORIGIN")
+                    self.send_header("X-XSS-Protection", "1; mode=block")
                     self.end_headers()
                     self.wfile.write(bin_resp)
                     self.wfile.flush()

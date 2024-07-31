@@ -13,11 +13,11 @@ class QueuedMessage:
 
     q_id: int
     source: ConnectionName
+    source_client_id: str
     destination: ConnectionName
-    client_id: str
+    destination_client_id: str
     message: PowerLink31Message | NonPowerLink31Message
     requires_ack: bool
-    do_not_route_ack: bool = False
 
     def __gt__(self, other):
         """Greater than."""

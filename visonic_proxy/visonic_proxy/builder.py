@@ -43,7 +43,7 @@ class MessageBuilder:
             checksum = 0x00
         return checksum.to_bytes(1, "big")
 
-    def build_ack_message(self, msg_id: int) -> NonPowerLink31Message:
+    def build_ack_message(self, msg_id: int = 0) -> NonPowerLink31Message:
         """Build ACK message.
 
         0d 02 43 ba 0a
@@ -82,14 +82,13 @@ class MessageBuilder:
         if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
             if msg[1:2] == b"\x02":
                 # Received ack message.  Use build_ack_message to ensure correct ACK type
-                message = self.build_ack_message()
+                message = self.build_ack_message().data.hex(" ")
                 msg_type = VIS_ACK
             else:
                 message = msg.hex(" ")
-            return message
 
         # Else deal with shortcut commands
-        if msg[:1] == b"\xb0":
+        elif msg[:1] == b"\xb0":
             if msg[-1:] != b"\x43":
                 command = msg[1:2].hex()
                 params = msg[2:].hex(" ")

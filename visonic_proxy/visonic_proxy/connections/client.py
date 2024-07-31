@@ -109,7 +109,14 @@ class ClientConnection:
             )
 
         # Fire connected event
-        fire_event(Event(self.name, EventType.CONNECTION, self.parent_connection_id))
+        fire_event(
+            Event(
+                name=self.name,
+                event_type=EventType.CONNECTION,
+                client_id=self.parent_connection_id,
+                event_data={"send_non_pl31_messages": self.send_non_pl31_messages},
+            )
+        )
 
     def data_received(self, _: asyncio.Transport, data: bytes):
         """Handle data received callback."""
@@ -139,29 +146,31 @@ class ClientConnection:
 
                 if self.send_non_pl31_messages:
                     self.transport.write(send_message.data)
+                    # _LOGGER.info("SENT: %s", send_message.data)
                 else:
                     self.transport.write(send_message.raw_data)
+                    # _LOGGER.info("SENT: %s", send_message.raw_data)
                 self.last_sent_message = dt.datetime.now()
                 log_message(
                     "%s->%s %s-%s %s %s",
                     queued_message.source,
                     self.name,
-                    queued_message.client_id,
+                    queued_message.destination_client_id,
                     msg_id
                     if isinstance(queued_message.message, NonPowerLink31Message)
                     else queued_message.message.msg_id,
-                    "ACK" if queued_message.message.msg_type == VIS_ACK else "MSG",
+                    queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
-                    level=3,
+                    level=3 if queued_message.message.msg_type == VIS_ACK else 1,
                 )
                 # Send message to listeners
                 # Send message to listeners
                 await async_fire_event(
                     Event(
-                        self.name,
-                        EventType.DATA_SENT,
-                        queued_message.client_id,
-                        queued_message.message.data,
+                        name=self.name,
+                        event_type=EventType.DATA_SENT,
+                        client_id=queued_message.destination_client_id,
+                        event_data=queued_message.message.data,
                     )
                 )
             except Exception as ex:  # pylint: disable=broad-exception-caught  # noqa: BLE001
@@ -192,7 +201,13 @@ class ClientConnection:
         if transport:
             transport.close()
         # Fire connected event
-        fire_event(Event(self.name, EventType.DISCONNECTION, self.parent_connection_id))
+        fire_event(
+            Event(
+                name=self.name,
+                event_type=EventType.DISCONNECTION,
+                client_id=self.parent_connection_id,
+            )
+        )
 
     async def shutdown(self):
         """Disconnect from Server."""

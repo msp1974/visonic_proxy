@@ -38,6 +38,8 @@ class Event:
     event_type: int
     client_id: str | None = None
     event_data: str | PowerLink31Message | NonPowerLink31Message | None = None
+    destination: str = None
+    destination_client_id: str = None
 
 
 class EventSubscribers:
