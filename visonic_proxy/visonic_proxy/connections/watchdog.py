@@ -75,7 +75,7 @@ class Watchdog:
 
     def _runner(self):
         """Check for old connections and disconnect."""
-        log_message("Running %s Watchdog", self.name, level=1)
+        log_message("Running %s Watchdog", self.name, level=6)
         if self._last_activity_tracker:
             clients_to_disconnect = [
                 client_id
@@ -100,4 +100,4 @@ class Watchdog:
         if self._run_watchdog:
             self._schedule_next_run()
 
-        log_message("Finished %s Watchdog run", self.name, level=1)
+        log_message("Finished %s Watchdog run", self.name, level=6)
