@@ -6,12 +6,21 @@ from dataclasses import dataclass
 from enum import StrEnum
 import logging
 
-from ..builder import MessageBuilder
-from ..const import MESSAGE_PORT, MONITOR_SERVER_DOES_ACKS, VISONIC_HOST, ConnectionName
+from ..builder import MessageBuilder, NonPowerLink31Message
+from ..const import (
+    MESSAGE_PORT,
+    PROXY_MODE,
+    VISONIC_HOST,
+    VISONIC_RECONNECT_INTERVAL,
+    ConnectionName,
+    ConnectionStatus,
+)
+from ..decoders.pl31_decoder import PowerLink31Message
 from ..events import Event, EventType, async_fire_event_later, subscribe
 from ..helpers import log_message
-from ..message_tracker import MessageTracker
 from .client import ClientConnection
+from .flow_manager import FlowManager
+from .message import QueuedMessage
 from .server import ServerConnection
 from .webserver import Webserver
 
@@ -57,9 +66,17 @@ class ConnectionCoordinator:
         self.monitor_server: ServerConnection = None
         self.visonic_clients: dict[str, ClientConnection] = {}
 
+        self.flow_manager = FlowManager(self.send_message, self.is_connection_ready)
+
+        self.initial_startup: bool = True
+
+        self.connect_visonic: bool = PROXY_MODE
+
     @property
     def is_disconnected_mode(self):
         """Return if no clients connected."""
+        if self.initial_startup and PROXY_MODE:
+            return False
         return self.alarm_server.disconnected_mode
 
     def set_disconnected_mode(self, disconnected: bool):
@@ -114,6 +131,9 @@ class ConnectionCoordinator:
             for unsub in self.unsubscribe_events:
                 unsub()
 
+        # Stop flow manager
+        await self.flow_manager.shutdown()
+
         # Stop webserver
         if self.webserver_task and not self.webserver_task.done():
             log_message("Stopping Webserver", level=1)
@@ -148,10 +168,22 @@ class ConnectionCoordinator:
             return
 
         self.alarm_server = ServerConnection(
-            ConnectionName.ALARM, "0.0.0.0", 5001, True, True
+            name=ConnectionName.ALARM,
+            host="0.0.0.0",
+            port=5001,
+            data_received_callback=self.flow_manager.data_received,
+            run_keepalive=False,
+            run_watchdog=True,
+            send_non_pl31_messages=False,
         )
         self.monitor_server = ServerConnection(
-            ConnectionName.ALARM_MONITOR, "0.0.0.0", 5002, False, False
+            name=ConnectionName.ALARM_MONITOR,
+            host="0.0.0.0",
+            port=5002,
+            data_received_callback=self.flow_manager.data_received,
+            run_keepalive=False,
+            run_watchdog=False,
+            send_non_pl31_messages=True,
         )
         await self.alarm_server.start_listening()
         await self.monitor_server.start_listening()
@@ -168,9 +200,21 @@ class ConnectionCoordinator:
             return
 
         visonic_client = ClientConnection(
-            ConnectionName.VISONIC, VISONIC_HOST, MESSAGE_PORT, client_id, True
+            name=ConnectionName.VISONIC,
+            host=VISONIC_HOST,
+            port=MESSAGE_PORT,
+            parent_connection_id=client_id,
+            data_received_callback=self.flow_manager.data_received,
+            run_watchdog=True,
         )
         self.visonic_clients[client_id] = visonic_client
+
+        # Register pending connection in flowmanger to hold any incomming messages for this
+        # connection until connected
+        self.flow_manager.register_connection(
+            ConnectionName.VISONIC, client_id, ConnectionStatus.CONNECTING
+        )
+
         await visonic_client.connect()
 
     async def stop_client_connection(self, client_id: str):
@@ -190,75 +234,108 @@ class ConnectionCoordinator:
         else:
             client_id = event.client_id
 
-        if client_id and client_id not in self.visonic_clients:
+        if client_id and client_id not in self.visonic_clients and self.connect_visonic:
             log_message("Connecting Visonic Client", level=1)
             await self.start_client_connection(client_id)
+
+    async def set_download_mode(self, enable: bool = False):
+        """Disconnect Visonic and don't let reconnect for 5 mins.
+
+        This is experimental to see if allows HA integration to load
+        without too much interuption.
+        """
+        client_id = self.alarm_server.get_first_client_id()
+        if enable:
+            _LOGGER.info("Setting Download Mode")
+            # Stop any connecting to Visonic
+            self.connect_visonic = False
+
+            # If Visonic connected, disconnect it
+            client_id = self.alarm_server.get_first_client_id()
+            if self.visonic_clients.get(client_id):
+                await self.stop_client_connection(client_id)
+
+        else:
+            _LOGGER.info("Exiting Download Mode")
+            self.connect_visonic = True
+            # Set reconnection timed event for Visonic
+            event = Event(
+                name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
+            )
+            await async_fire_event_later(3, event)
 
     async def connection_event(self, event: Event):
         """Handle connection event."""
         log_message("Connection event - %s", event, level=6)
 
-        # Send status message on all connection events
+        # Register connection with flow manager
+        non_pl31_messages = event.event_data and event.event_data.get(
+            "send_non_pl31_messages"
+        )
+        self.flow_manager.register_connection(
+            event.name,
+            event.client_id,
+            ConnectionStatus.CONNECTED,
+            send_non_pl31_messages=non_pl31_messages,
+        )
+
+        # Send status message on all disconnection events
         if self.monitor_server.clients:
-            await self.send_status_message(ConnectionName.ALARM_MONITOR)
+            await self.send_status_message(
+                ConnectionName.ALARM_MONITOR, self.monitor_server.get_first_client_id()
+            )
 
         if event.name == ConnectionName.ALARM:
-            self.alarm_server.release_send_queue()
-
-            # It is possible this is a second connection from the Alarm for an ADM-CID message
-            # and we don't have any connections to Visonic.
-            if not self.visonic_clients:
-                loop = asyncio.get_running_loop()
-                loop.create_task(  # noqa: RUF006
-                    self.visonic_connect_request_event(
-                        Event(ConnectionName.ALARM, EventType.REQUEST_CONNECT)
-                    )
-                )
-
-            await self.visonic_connect_request_event(event)
-
-        elif event.name == ConnectionName.ALARM_MONITOR:
-            if not MONITOR_SERVER_DOES_ACKS:
-                self.monitor_server.disable_acks = True
-
-            self.monitor_server.release_send_queue()
+            self.webserver.unset_request_to_connect()
+            if self.connect_visonic:
+                await self.visonic_connect_request_event(event)
 
         elif event.name == ConnectionName.VISONIC:
             self.set_disconnected_mode(False)
 
             # Initiate messages to send if first connection to Visonic
-            if len(self.visonic_clients) == 1:
-                init_messages = [
-                    ("b0 17 51", ConnectionName.ALARM),
-                    ("b0 17 24", ConnectionName.ALARM),
-                    # ("b0 17 51", ConnectionName.ALARM),
-                    # ("b0 03 51 08 ff 08 ff 03 18 24 4b 03 43", ConnectionName.VISONIC),
-                    ("b0 0f", ConnectionName.ALARM),
-                ]
-                for init_message in init_messages:
-                    message = MessageBuilder().message_preprocessor(
-                        MessageTracker.get_next(),
-                        bytes.fromhex(init_message[0]),
-                    )
-                    await self.queue_message(
-                        ConnectionName.CM,
-                        init_message[1],
-                        event.client_id,
-                        int(message.msg_id),
-                        message.message,
-                        message.msg_data,
-                        requires_ack=False,
-                    )
+            if not self.initial_startup:
+                if len(self.visonic_clients) == 1:
+                    init_messages = [
+                        ("b0 17 51", ConnectionName.ALARM),
+                        ("b0 17 51", ConnectionName.ALARM),
+                        # ("b0 17 51", ConnectionName.ALARM),
+                        ("b0 17 24", ConnectionName.ALARM),
+                        # ("b0 17 51", ConnectionName.ALARM),
+                    ]
+                    for init_message in init_messages:
+                        message = MessageBuilder().message_preprocessor(
+                            bytes.fromhex(init_message[0]),
+                        )
+                        await self.queue_message(
+                            ConnectionName.CM,
+                            0,
+                            ConnectionName.ALARM,
+                            event.client_id,
+                            message,
+                        )
+                        await asyncio.sleep(0.1)
+            else:
+                self.initial_startup = False
 
     async def disconnection_event(self, event: Event):
         """Handle connection event."""
         log_message("Disconnection event - %s", event, level=6)
 
+        # Unregister connection with flow manager
+        self.flow_manager.unregister_connection(event.name, event.client_id)
+
         # Send status message on all disconnection events
         if self.monitor_server.clients:
-            await self.send_status_message(ConnectionName.ALARM_MONITOR)
+            await self.send_status_message(
+                ConnectionName.ALARM_MONITOR, self.monitor_server.get_first_client_id()
+            )
 
         if event.name == ConnectionName.ALARM:
+            # Set webserver to reconnect if no clients
+            if self.alarm_server.client_count == 0:
+                self.webserver.set_request_to_connect()
+
             # If Alarm disconnects, disconnect Visonic
             # Note this can be a second alarm and Visonic connection
             await self.stop_client_connection(event.client_id)
@@ -267,14 +344,16 @@ class ConnectionCoordinator:
             # Remove client connection reference
             await self.stop_client_connection(event.client_id)
 
-        if len(self.visonic_clients) == 0:
-            self.set_disconnected_mode(True)
+            if len(self.visonic_clients) == 0:
+                self.set_disconnected_mode(True)
 
-            # Set reconnection in KEEPALIVE timeout
-            event = Event(ConnectionName.VISONIC, EventType.REQUEST_CONNECT)
-            await async_fire_event_later(10, event)
+                # Set reconnection timed event for Visonic
+                event = Event(
+                    name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
+                )
+                await async_fire_event_later(VISONIC_RECONNECT_INTERVAL, event)
 
-    async def send_status_message(self, destination: ConnectionName):
+    async def send_status_message(self, destination: ConnectionName, client_id: str):
         """Send an status message.
 
         Used to allow management of this Connection Manager from the Monitor Connection
@@ -283,76 +362,65 @@ class ConnectionCoordinator:
         alarm_status = len(self.alarm_server.clients)
         visonic_status = len(self.visonic_clients)
         monitor_status = len(self.monitor_server.clients)
-        alarm_queue = self.alarm_server.sender_queue.qsize()
-        if len(self.visonic_clients) > 0:
-            client_id = list(self.visonic_clients.keys())[0]
-            visonic_queue = self.visonic_clients[client_id].sender_queue.qsize()
-        else:
-            visonic_queue = 0
-        monitor_queue = self.monitor_server.sender_queue.qsize()
 
-        msg = f"e0 {alarm_status:02x} {visonic_status:02x} {monitor_status:02x} {alarm_queue:02x} {visonic_queue:02x} {monitor_queue:02x} 43"
-        message = MessageBuilder().message_preprocessor(
-            MessageTracker.get_next(), bytes.fromhex(msg)
-        )
+        message_queue = self.flow_manager.sender_queue.qsize()
+
+        msg = f"e0 {alarm_status:02x} {visonic_status:02x} {monitor_status:02x} {message_queue:02x} 43"
+        message = MessageBuilder().message_preprocessor(bytes.fromhex(msg))
         await self.queue_message(
             ConnectionName.CM,
-            destination,
-            "",
             0,
-            message.message,
-            bytes.fromhex(message.message),
+            destination,
+            client_id,
+            message,
+            requires_ack=False,
         )
+
+    def is_connection_ready(self, message: QueuedMessage) -> bool:
+        """Return if connection ready to send."""
+        if message.destination == ConnectionName.ALARM:
+            return len(self.alarm_server.clients) > 0
+
+        if message.destination == ConnectionName.ALARM_MONITOR:
+            return len(self.monitor_server.clients) > 0
+        if message.destination == ConnectionName.VISONIC:
+            return len(self.visonic_clients) > 0
+
+    async def send_message(self, message: QueuedMessage):
+        """Route message to correct connection."""
+
+        if message.destination == ConnectionName.ALARM:
+            result = await self.alarm_server.send_message(message)
+        elif message.destination == ConnectionName.ALARM_MONITOR:
+            result = await self.monitor_server.send_message(message)
+        elif message.destination == ConnectionName.VISONIC:
+            if self.visonic_clients:
+                try:
+                    client = self.visonic_clients[message.destination_client_id]
+                    result = await client.send_message(message)
+                except KeyError:
+                    _LOGGER.warning(
+                        "Visonic client %s is not connected.  Dumping message send request",
+                        message.destination_client_id,
+                    )
+                    result = False
+        return result
 
     async def queue_message(
         self,
         source: ConnectionName,
+        source_client_id,
         destination: ConnectionName,
-        client_id: str,
-        message_id: int,
-        readable_message: str,
-        message: bytes,
-        is_ack: bool = False,
+        destination_client_id: str,
+        message: PowerLink31Message | NonPowerLink31Message,
         requires_ack: bool = True,
     ):
-        """Route message to correct connection."""
-        if destination == ConnectionName.ALARM:
-            result = await self.alarm_server.queue_message(
-                source,
-                client_id,
-                message_id,
-                readable_message,
-                message,
-                is_ack,
-                requires_ack,
-            )
-        if destination == ConnectionName.ALARM_MONITOR:
-            result = await self.monitor_server.queue_message(
-                source,
-                client_id,
-                message_id,
-                readable_message,
-                message,
-                is_ack,
-                requires_ack,
-            )
-        if destination == ConnectionName.VISONIC:
-            if self.visonic_clients:
-                try:
-                    client = self.visonic_clients[client_id]
-                    result = await client.queue_message(
-                        source,
-                        client_id,
-                        message_id,
-                        readable_message,
-                        message,
-                        is_ack,
-                        requires_ack,
-                    )
-                except KeyError:
-                    _LOGGER.warning(
-                        "Visonic client %s is not connected.  Dumping message send request",
-                        client_id,
-                    )
-                    result = False
-        return result
+        """Route message to flow manager."""
+        await self.flow_manager.queue_message(
+            source,
+            source_client_id,
+            destination,
+            destination_client_id,
+            message,
+            requires_ack,
+        )

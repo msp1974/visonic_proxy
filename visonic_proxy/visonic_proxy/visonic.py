@@ -40,9 +40,11 @@ class Runner:
                 alarm_clients,
                 visonic_clients,
                 monitor_clients,
-                level=6,
+                level=4,
             )
+            log_message("DISCONNECTED MODE: %s", cc.is_disconnected_mode, level=4)
 
+            """
             alarm_q = cc.alarm_server.sender_queue.qsize()
             visonic_q = [
                 client.sender_queue.qsize() for _, client in cc.visonic_clients.items()
@@ -63,6 +65,7 @@ class Runner:
                 cc.monitor_server.is_rts,
                 level=6,
             )
+            """
 
     async def stop(self):
         """Stop."""

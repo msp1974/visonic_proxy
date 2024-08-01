@@ -5,55 +5,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import datetime as dt
 import logging
-import re
 from socket import AF_INET
 
-from ..builder import MessageBuilder
-from ..const import (
-    ACK_TIMEOUT,
-    ADM_ACK,
-    KEEPALIVE_TIMER,
-    NAK,
-    VIS_ACK,
-    ConnectionName,
-    ConnectionSourcePriority,
-)
-from ..decoders.pl31_decoder import PowerLink31MessageDecoder
-from ..events import (
-    Event,
-    EventType,
-    async_fire_event,
-    async_fire_event_later,
-    fire_event,
-    subscribe,
-)
+from ..builder import MessageBuilder, NonPowerLink31Message
+from ..const import KEEPALIVE_TIMER, VIS_ACK, ConnectionName
+from ..events import Event, EventType, async_fire_event, fire_event, subscribe
 from ..helpers import log_message
 from ..message_tracker import MessageTracker
+from .message import QueuedMessage
 from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
 
 _LOGGER = logging.getLogger(__name__)
-
-
-@dataclass
-class QueuedMessage:
-    """Queued message."""
-
-    source: str
-    client_id: str
-    message_id: int
-    message: str
-    data: bytes
-    is_ack: bool = False
-    requires_ack: bool = True
-
-    def __gt__(self, other):
-        """Greater than."""
-        return self.message_id > other.message_id
-
-    def __lt__(self, other):
-        """Less than."""
-        return self.message_id < other.message_id
 
 
 @dataclass
@@ -76,28 +39,27 @@ class ServerConnection:
         name: ConnectionName,
         host: str,
         port: int,
+        data_received_callback: Callable | None = None,
         run_keepalive: bool = False,
         run_watchdog: bool = False,
+        send_non_pl31_messages: bool = False,
     ):
         """Init."""
         self.name = name
         self.host = host
         self.port = port
+        self.cb_data_received = data_received_callback
         self.run_keepalive = run_keepalive
         self.run_watchdog = run_watchdog
+        self.send_non_pl31_messages = send_non_pl31_messages
 
         self.server: asyncio.Server = None
-        self.sender_queue = asyncio.PriorityQueue(maxsize=100)
-
-        self.rts = asyncio.Event()
-
-        self.message_sender_task: asyncio.Task = None
         self.keep_alive_timer_task: asyncio.Task = None
         self.watchdog: Watchdog = None
 
         self.clients: dict[str, ClientConnection] = {}
 
-        self.disconnected_mode: bool = False
+        self.disconnected_mode: bool = True
         self.disable_acks: bool = False
 
         self.unsubscribe_listeners: list[Callable] = []
@@ -151,15 +113,8 @@ class ServerConnection:
                         EventType.REQUEST_DISCONNECT,
                         self.handle_disconnect_event,
                     ),
-                    # Subscribe to ack timeout events
-                    subscribe(self.name, EventType.ACK_TIMEOUT, self.ack_timeout),
                 ]
             )
-
-        # Start message queue processor
-        self.message_sender_task = loop.create_task(
-            self.send_queue_processor(), name=f"{self.name} Send Queue Processor"
-        )
 
     def client_connected(self, transport: asyncio.Transport):
         """Handle connection callback."""
@@ -178,7 +133,14 @@ class ServerConnection:
         _LOGGER.debug("Connections: %s", self.clients)
 
         # Fire connected event
-        fire_event(Event(self.name, EventType.CONNECTION, client_id))
+        fire_event(
+            Event(
+                name=self.name,
+                event_type=EventType.CONNECTION,
+                client_id=client_id,
+                event_data={"send_non_pl31_messages": self.send_non_pl31_messages},
+            )
+        )
 
         # If needs keepalive timer, start it
         if self.run_keepalive and not self.keep_alive_timer_task:
@@ -193,179 +155,66 @@ class ServerConnection:
         """Handle callback for when data received."""
 
         client_id = self.get_client_id(transport)
+        # _LOGGER.info("%s %s -> %s", self.name, client_id, data)
 
         # Update client last received
         self.clients[client_id].last_received_message = dt.datetime.now()
 
-        if self.name == ConnectionName.ALARM_MONITOR:
-            message = MessageBuilder().message_preprocessor(
-                MessageTracker.get_next(), data
-            )
-            data = message.msg_data
+        if self.cb_data_received:
+            self.cb_data_received(self.name, client_id, data)
 
-        # It is possible that some messages are multiple messages combined.
-        # Only way I can think to handle this is to split them, process each
-        # in turn and fire DATA RECEIVED message for each.
-        split_after = ["5d 0d"]
-        rx = re.compile(rf'(?<=({"|".join(split_after)}))[^\b]')
-        messages = [x for x in rx.split(data.hex(" ")) if x not in split_after]
+    async def send_message(self, queued_message: QueuedMessage):
+        """Send message."""
+        # Check client is connected
+        if queued_message.destination_client_id in self.clients:
+            client = self.clients[queued_message.destination_client_id]
 
-        for message in messages:
-            # Decode PL31 message wrapper
-            # Decode powerlink 31 wrapper
-            pl31_message = PowerLink31MessageDecoder().decode_powerlink31_message(
-                bytes.fromhex(message)
-            )
-
-            if pl31_message.type == [VIS_ACK, ADM_ACK]:
-                log_message(
-                    "%s %s-%s-> %s %s",
-                    self.name,
-                    client_id,
-                    pl31_message.msg_id,
-                    "ACK" if pl31_message.type in [VIS_ACK, ADM_ACK] else "NAK",
-                    pl31_message.message.hex(" "),
-                    level=5,
-                )
-            else:
-                log_message(
-                    "%s %s-%s-> %s %s",
-                    self.name,
-                    client_id,
-                    pl31_message.msg_id,
-                    "MSG",
-                    pl31_message.message.hex(" "),
-                    level=2,
-                )
-
-            # If waiting ack and receive ack, set RTS
-            if not self.is_rts and pl31_message.type in [VIS_ACK, ADM_ACK, NAK]:
-                log_message(
-                    "%s %s-%s received ACK",
-                    self.name,
-                    client_id,
-                    pl31_message.msg_id,
-                    level=5,
-                )
-                self.release_send_queue()
-
-            # Send message to listeners
-            fire_event(
-                Event(self.name, EventType.DATA_RECEIVED, client_id, pl31_message)
-            )
-
-    async def queue_message(
-        self,
-        source: ConnectionName,
-        client_id: str,
-        message_id: int,
-        readable_message: str,
-        data: bytes,
-        is_ack: bool = False,
-        requires_ack: bool = True,
-    ):
-        """Add message to send queue for processing."""
-
-        # Dont add messages to queue if nowhere to send
-        if self.clients:
-            # Send to first connection if client id not recognised
-            # This will be the case for injected commands from monitor
-            if client_id not in self.clients:
-                client_id = list(self.clients.keys())[0]
-
-            priority = ConnectionSourcePriority[source.name]
-
-            queue_entry = QueuedMessage(
-                source,
-                client_id,
-                message_id,
-                readable_message,
-                data,
-                is_ack,
-                requires_ack,
-            )
-            await self.sender_queue.put((priority, queue_entry))
-            return True
-
-        _LOGGER.warning("No connected clients. Message will be dropped")
-        return False
-
-    @property
-    def is_rts(self):
-        """Return if connection ready to send."""
-        return self.rts.is_set()
-
-    def hold_send_queue(self):
-        """Hold send queue."""
-        self.rts.clear()
-
-    def release_send_queue(self):
-        """Release send queue."""
-        self.rts.set()
-
-    async def send_queue_processor(self):
-        """Process send queue."""
-        while True:
-            queue_message = await self.sender_queue.get()
-
-            # Wait until RTS
-            await self.rts.wait()
-
-            message: QueuedMessage = queue_message[1]
-
-            # Check client is connected
-            if message.client_id in self.clients:
-                client = self.clients[message.client_id]
-
-                if client.transport:
-                    client.transport.write(message.data)
-                    log_message(
-                        "%s->%s %s-%s %s %s",
-                        message.source,
-                        self.name,
-                        message.client_id,
-                        message.message_id,
-                        "ACK" if message.is_ack else "MSG",
-                        message.message,
-                        level=3,
+            if client.transport:
+                if isinstance(queued_message.message, NonPowerLink31Message):
+                    # Need to build powerlink message before we send
+                    if msg_id := queued_message.message.msg_id == 0:
+                        msg_id = MessageTracker.get_next()
+                    send_message = MessageBuilder().build_powerlink31_message(
+                        msg_id,
+                        queued_message.message.data,
+                        queued_message.message.msg_type == VIS_ACK,
                     )
-                    # Send message to listeners
-                    await async_fire_event(
-                        Event(
-                            self.name,
-                            EventType.DATA_SENT,
-                            message.client_id,
-                            message.data,
-                        )
+                else:
+                    # For a Powerlink message, we just forward the original data
+                    send_message = queued_message.message
+
+                if self.send_non_pl31_messages:
+                    client.transport.write(send_message.data)
+                else:
+                    client.transport.write(send_message.raw_data)
+
+                log_message(
+                    "%s->%s %s-%s %s %s",
+                    queued_message.source,
+                    self.name,
+                    queued_message.destination_client_id,
+                    msg_id
+                    if isinstance(queued_message.message, NonPowerLink31Message)
+                    else queued_message.message.msg_id,
+                    queued_message.message.msg_type,
+                    queued_message.message.data.hex(" "),
+                    level=2 if queued_message.message.msg_type == VIS_ACK else 1,
+                )
+                # Send message to listeners
+                await async_fire_event(
+                    Event(
+                        name=self.name,
+                        event_type=EventType.DATA_SENT,
+                        client_id=queued_message.destination_client_id,
+                        event_data=queued_message.message,
                     )
-
-                    if message.requires_ack and not self.disable_acks:
-                        await self.wait_for_ack(message.client_id, message.message_id)
-
-            # Message done even if not sent due to no clients
-            self.sender_queue.task_done()
-
-    async def wait_for_ack(self, client_id: str, message_id: int):
-        """Wait for ack notification."""
-        # Called to set wait
-        log_message(
-            "%s %s-%s waiting for ACK", self.name, client_id, message_id, level=5
+                )
+                return True
+        _LOGGER.error(
+            "Unable to send message to %s %s",
+            queued_message.destination,
+            queued_message.destination_client_id,
         )
-        self.hold_send_queue()
-
-        # Create timeout event
-        timeout = await async_fire_event_later(
-            ACK_TIMEOUT,
-            Event(self.name, EventType.ACK_TIMEOUT, client_id),
-        )
-        await self.rts.wait()
-        timeout.cancel()
-
-    async def ack_timeout(self, event: Event):
-        """ACK timeout callback."""
-        if event.name == self.name and event.event_type == EventType.ACK_TIMEOUT:
-            log_message("ACK TIMEOUT: %s", self.name, level=5)
-            self.release_send_queue()
 
     def client_disconnected(self, transport: asyncio.Transport):
         """Disconnected callback."""
@@ -394,7 +243,11 @@ class ServerConnection:
                 self.keep_alive_timer_task = None
 
         # Send message to listeners
-        fire_event(Event(self.name, EventType.DISCONNECTION, client_id))
+        fire_event(
+            Event(
+                name=self.name, event_type=EventType.DISCONNECTION, client_id=client_id
+            )
+        )
 
     def handle_disconnect_event(self, event: Event):
         """Handle disconnect event."""
@@ -416,17 +269,9 @@ class ServerConnection:
         """Disconect the server."""
 
         # Unsubscribe listeners
-        for unsub in self.unsubscribe_listeners:
-            unsub()
-
-        # Stop message sender processor
-        if self.message_sender_task and not self.message_sender_task.done():
-            self.message_sender_task.cancel()
-
-        # Clear any residual queue messages
-        while not self.sender_queue.empty():
-            self.sender_queue.get_nowait()
-            self.sender_queue.task_done()
+        if self.unsubscribe_listeners:
+            for unsub in self.unsubscribe_listeners:
+                unsub()
 
         # Stop keep alive timer
         if self.keep_alive_timer_task and not self.keep_alive_timer_task.done():
