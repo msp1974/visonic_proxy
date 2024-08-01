@@ -47,9 +47,9 @@ class Runner:
                 level=2,
             )
             log_message(
-                "MODES: Disconnected Mode: %s, Download: %s",
+                "MODES: Disconnected Mode: %s, Stealth Mode: %s",
                 cc.is_disconnected_mode,
-                cc.download_mode,
+                cc.stealth_mode,
                 level=2,
             )
             log_message(

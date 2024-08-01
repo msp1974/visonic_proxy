@@ -72,7 +72,7 @@ class ConnectionCoordinator:
         self.initial_startup: bool = True
 
         self.connect_visonic: bool = PROXY_MODE
-        self.download_mode: bool = False
+        self.stealth_mode: bool = False
 
     @property
     def is_disconnected_mode(self):
@@ -239,17 +239,18 @@ class ConnectionCoordinator:
             log_message("Connecting Visonic Client %s", client_id, level=1)
             await self.start_client_connection(client_id)
 
-    async def set_download_mode(self, enable: bool = False):
+    async def set_stealth_mode(self, enable: bool = False):
         """Disconnect Visonic and don't let reconnect for 5 mins.
 
         This is experimental to see if allows HA integration to load
         without too much interuption.
         """
         client_id = self.alarm_server.get_first_client_id()
-        self.download_mode = enable
-        if enable:
-            _LOGGER.info("Entering Download Mode")
+
+        if enable and not self.stealth_mode:
+            _LOGGER.info("Entering Stealth Mode")
             # Stop any connecting to Visonic
+            self.stealth_mode = True
             self.connect_visonic = False
 
             # If Visonic connected, disconnect it
@@ -257,14 +258,16 @@ class ConnectionCoordinator:
             if self.visonic_clients.get(client_id):
                 await self.stop_client_connection(client_id)
 
-        else:
-            _LOGGER.info("Exiting Download Mode")
-            self.connect_visonic = True
-            # Set reconnection timed event for Visonic
-            event = Event(
-                name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
-            )
-            await async_fire_event_later(3, event)
+        elif (not enable) and self.stealth_mode:
+            _LOGGER.info("Exiting Stealth Mode")
+            self.stealth_mode = False
+            if PROXY_MODE:
+                self.connect_visonic = True
+                # Set reconnection timed event for Visonic
+                event = Event(
+                    name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
+                )
+                await async_fire_event_later(3, event)
 
     async def connection_event(self, event: Event):
         """Handle connection event."""
