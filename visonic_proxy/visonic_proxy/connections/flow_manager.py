@@ -235,7 +235,7 @@ class FlowManager:
                 decoded_message.msg_id,
                 decoded_message.msg_type,
                 decoded_message.data.hex(" "),
-                level=2,
+                level=4,
             )
 
             if source == ConnectionName.ALARM:
