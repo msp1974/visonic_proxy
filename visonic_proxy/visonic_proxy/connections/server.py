@@ -80,41 +80,44 @@ class ServerConnection:
 
     async def start_listening(self):
         """Start server to allow Alarm to connect."""
-        loop = asyncio.get_running_loop()
-        self.server = await loop.create_server(
-            lambda: ConnectionProtocol(
-                self.name,
-                self.client_connected,
-                self.client_disconnected,
-                self.data_received,
-            ),
-            self.host,
-            self.port,
-            family=AF_INET,
-        )
-        log_message(
-            "Listening for %s connection on %s port %s",
-            self.name,
-            self.host,
-            self.port,
-            level=1,
-        )
-
-        # Start watchdog timer
-        if self.run_watchdog:
-            self.watchdog = Watchdog(self.name, 120)
-            self.watchdog.start()
-
-            # listen for watchdog events
-            self.unsubscribe_listeners.extend(
-                [
-                    subscribe(
-                        self.name,
-                        EventType.REQUEST_DISCONNECT,
-                        self.handle_disconnect_event,
-                    ),
-                ]
+        try:
+            loop = asyncio.get_running_loop()
+            self.server = await loop.create_server(
+                lambda: ConnectionProtocol(
+                    self.name,
+                    self.client_connected,
+                    self.client_disconnected,
+                    self.data_received,
+                ),
+                self.host,
+                self.port,
+                family=AF_INET,
             )
+            log_message(
+                "Listening for %s connection on %s port %s",
+                self.name,
+                self.host,
+                self.port,
+                level=1,
+            )
+
+            # Start watchdog timer
+            if self.run_watchdog:
+                self.watchdog = Watchdog(self.name, 120)
+                self.watchdog.start()
+
+                # listen for watchdog events
+                self.unsubscribe_listeners.extend(
+                    [
+                        subscribe(
+                            self.name,
+                            EventType.REQUEST_DISCONNECT,
+                            self.handle_disconnect_event,
+                        ),
+                    ]
+                )
+        except OSError as ex:
+            _LOGGER.error("Unable to start %s server. Error is %s", self.name, ex)
 
     def client_connected(self, transport: asyncio.Transport):
         """Handle connection callback."""
@@ -287,8 +290,10 @@ class ServerConnection:
         for client_id in self.clients:
             log_message("Disconnecting from %s %s", self.name, client_id, level=1)
             self.disconnect_client(client_id)
-        self.server.close()
-        await self.server.wait_closed()
+
+        if self.server:
+            self.server.close()
+            await self.server.wait_closed()
 
     async def keep_alive_timer(self):
         """Keep alive timer.
