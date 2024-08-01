@@ -297,10 +297,10 @@ class ConnectionCoordinator:
             if not self.initial_startup:
                 if len(self.visonic_clients) == 1:
                     init_messages = [
-                        ("b0 17 51", ConnectionName.ALARM),
-                        ("b0 17 51", ConnectionName.ALARM),
+                        ("b0 17 51 51 51 0f 24", ConnectionName.ALARM),
                         # ("b0 17 51", ConnectionName.ALARM),
-                        ("b0 17 24", ConnectionName.ALARM),
+                        # ("b0 17 51", ConnectionName.ALARM),
+                        # ("b0 17 0f", ConnectionName.ALARM),
                         # ("b0 17 51", ConnectionName.ALARM),
                     ]
                     for init_message in init_messages:
