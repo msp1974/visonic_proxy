@@ -248,7 +248,7 @@ class ConnectionCoordinator:
         client_id = self.alarm_server.get_first_client_id()
         self.download_mode = enable
         if enable:
-            _LOGGER.info("Setting Download Mode")
+            _LOGGER.info("Entering Download Mode")
             # Stop any connecting to Visonic
             self.connect_visonic = False
 

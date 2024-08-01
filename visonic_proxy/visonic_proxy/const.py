@@ -38,6 +38,7 @@ ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
 ALARM_MONITOR_SENDS_ACKS = True
 ALARM_MONITOR_NEEDS_ACKS = True
 ACK_B0_03_MESSAGES = True
+DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE = False
 SEND_E0_MESSAGES = False
 
 
@@ -94,7 +95,8 @@ class ConnectionStatus(IntEnum):
 class ManagedMessages(StrEnum):
     """Messages that get handled in some way."""
 
-    ACK = "0d 02 43 ba 0a"
+    PL_ACK = "0d 02 43 ba 0a"
+    ACK = "0d 02 fd 0a"
     DISCONNECT_MESSAGE = "0d ad 0a 00 00 00 00 00 00 00 00 00 43 05 0a"
     HELLO = "0d 06 f9 0a"
     KEEPALIVE = "0d b0 01 6a 00 43 a0 0a"

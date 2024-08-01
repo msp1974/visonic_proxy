@@ -43,13 +43,19 @@ class MessageBuilder:
             checksum = 0x00
         return checksum.to_bytes(1, "big")
 
-    def build_ack_message(self, msg_id: int = 0) -> NonPowerLink31Message:
+    def build_ack_message(
+        self, msg_id: int = 0, pl_ack: bool = True
+    ) -> NonPowerLink31Message:
         """Build ACK message.
 
         0d 02 43 ba 0a
         """
         return NonPowerLink31Message(
-            msg_type=VIS_ACK, msg_id=msg_id, data=bytes.fromhex(ManagedMessages.ACK)
+            msg_type=VIS_ACK,
+            msg_id=msg_id,
+            data=bytes.fromhex(
+                ManagedMessages.PL_ACK if pl_ack else ManagedMessages.ACK
+            ),
         )
 
     def build_keep_alive_message(self) -> NonPowerLink31Message:
@@ -82,7 +88,8 @@ class MessageBuilder:
         if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
             if msg[1:2] == b"\x02":
                 # Received ack message.  Use build_ack_message to ensure correct ACK type
-                message = self.build_ack_message().data.hex(" ")
+                # message = self.build_ack_message().data.hex(" ")
+                message = msg.hex(" ")
                 msg_type = VIS_ACK
             else:
                 message = msg.hex(" ")

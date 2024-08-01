@@ -235,7 +235,7 @@ class FlowManager:
                 decoded_message.msg_id,
                 decoded_message.msg_type,
                 decoded_message.data.hex(" "),
-                level=6,
+                level=2,
             )
 
             if source == ConnectionName.ALARM:
@@ -285,7 +285,7 @@ class FlowManager:
                             # Sometimes Visonic gets out of sync and Alarm sends ACK 1 higher than Visonic waiting for
                             source == ConnectionName.ALARM
                             and self.ack_awaiter.desination == ConnectionName.VISONIC
-                            and decoded_message.msg_id == self.ack_awaiter.msg_id + 1
+                            and decoded_message.msg_id > self.ack_awaiter.msg_id
                         )
                         or (
                             # ACKs comming from the Alarm Monitor are not Powerlink messages and therefore have no message id
@@ -300,7 +300,7 @@ class FlowManager:
                             source == ConnectionName.ALARM
                             and self.ack_awaiter.desination
                             == ConnectionName.ALARM_MONITOR
-                            and decoded_message.msg_id == self.ack_awaiter.msg_id + 1
+                            and decoded_message.msg_id > self.ack_awaiter.msg_id
                         )
                     )
                 ):

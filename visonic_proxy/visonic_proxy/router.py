@@ -13,6 +13,7 @@ from .const import (
     ADM_ACK,
     ADM_CID,
     ALARM_MONITOR_SENDS_ACKS,
+    DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE,
     DUH,
     NAK,
     VIS_ACK,
@@ -84,49 +85,65 @@ class MessageRouter:
 
         # Event data should be a PowerLink31Message or NonPowerLink31Message (from Alarm Monitor)
 
-        # Route ACKs - all ACK messages should have a destination populated.  If not, dump it.
         log_message("REC MSG: %s", event, level=6)
-        if event.event_data.msg_type in [
-            VIS_ACK,
-            ADM_ACK,
-            NAK,
-            DUH,
-        ]:  # TODO: Check this list should have NAK and DUH
+
+        # ---------------------------------------------------------------
+        # ACK Messages
+        # ---------------------------------------------------------------
+
+        # Route ACKs - all ACK messages should have a destination populated.  If not, dump it.
+        if event.event_data.msg_type in [VIS_ACK, ADM_ACK, NAK, DUH]:
+            # TODO: Check this list should have NAK and DUH
             # TODO: Add here if should create ACK, not send etc
 
-            if (
-                event.event_data.msg_type in [ADM_ACK, NAK]
-                and event.name == ConnectionName.VISONIC
-            ):
-                # Just forward this to the Alarm.
-                # TODO: Why does it not receive destination info from flow manager?
-                await self.forward_message(ConnectionName.ALARM, event.client_id, event)
+            # ---------------------------------------------------------------
+            # ALARM
+            # ---------------------------------------------------------------
+            if event.name == ConnectionName.ALARM:
+                pass
 
-            elif event.destination and event.destination_client_id:
+            # ---------------------------------------------------------------
+            # VISONIC
+            # ---------------------------------------------------------------
+            if event.name == ConnectionName.VISONIC:
+                await self.forward_message(ConnectionName.ALARM, event.client_id, event)
+                return
+
+            # ---------------------------------------------------------------
+            # ALARM MONITOR
+            # ---------------------------------------------------------------
+            if event.name == ConnectionName.ALARM_MONITOR:
+                if self._connection_coordinator.is_disconnected_mode:
+                    # Must be for Alarm
+                    await self.forward_message(
+                        ConnectionName.ALARM,
+                        self._connection_coordinator.alarm_server.get_first_client_id(),
+                        event,
+                        False,
+                    )
+                return
+
+            # ---------------------------------------------------------------
+            # ALL
+            # ---------------------------------------------------------------
+
+            if event.destination and event.destination_client_id:
                 # If it is an ACK, we expect to have destination and desitnation_client_id
                 # If we don't, just dump it
                 await self.forward_message(
                     event.destination, event.destination_client_id, event
                 )
-            elif (
-                event.name == ConnectionName.ALARM_MONITOR
-                and self._connection_coordinator.is_disconnected_mode
-            ):
-                # Must be for Alarm
-                await self.forward_message(
-                    ConnectionName.ALARM,
-                    self._connection_coordinator.alarm_server.get_first_client_id(),
-                    event,
-                    False,
-                )
-            elif event.destination != ConnectionName.CM:
+                return
+
+            if event.destination != ConnectionName.CM:
                 _LOGGER.warning("ACK received with no destination. %s", event)
 
-        else:
-            # Route VIS-BBA messages
-            func = f"{event.name.lower()}_router"
-            if hasattr(self, func):
-                await getattr(self, func)(event)
+            return
+
+        # Route VIS-BBA messages
+        func = f"{event.name.lower()}_router"
+        if hasattr(self, func):
+            await getattr(self, func)(event)
 
     async def alarm_router(self, event: Event):
         """Route Alarm received VIS-BBA and *ADM-CID messages."""
@@ -152,9 +169,18 @@ class MessageRouter:
             ):
                 log_message("CREATING ACK: %s", event, level=6)
                 await self.send_ack_message(event)
-                if self._connection_coordinator.download_mode:
-                    # Do not forward b0 messages in download mode
-                    return
+            if (
+                self._connection_coordinator.download_mode
+                and DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE
+            ):
+                log_message(
+                    "Not forwardind to %s as DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE set to %s",
+                    ConnectionName.ALARM_MONITOR,
+                    DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE,
+                    level=2,
+                )
+                # Do not forward b0 messages in download mode
+                return
 
             # Set things going to Alarm Monitor that do not need ACKs
             requires_ack = True
@@ -286,7 +312,9 @@ class MessageRouter:
 
     async def send_ack_message(self, event: Event):
         """Send ACK message."""
-        ack_message = self._message_builer.build_ack_message(event.event_data.msg_id)
+        ack_message = self._message_builer.build_ack_message(
+            event.event_data.msg_id, not self._connection_coordinator.download_mode
+        )
         await self._connection_coordinator.queue_message(
             ConnectionName.CM, 0, event.name, event.client_id, ack_message
         )
