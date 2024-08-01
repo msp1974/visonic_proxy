@@ -7,11 +7,9 @@ import logging
 from socket import AF_INET
 import traceback
 
-from ..builder import MessageBuilder, NonPowerLink31Message
 from ..const import VIS_ACK
 from ..events import Event, EventType, async_fire_event, fire_event, subscribe
 from ..helpers import log_message
-from ..message_tracker import MessageTracker
 from .message import QueuedMessage
 from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
@@ -131,34 +129,18 @@ class ClientConnection:
         # Check client is connected
         if self.connected:
             try:
-                if isinstance(queued_message.message, NonPowerLink31Message):
-                    # Need to build powerlink message before we send
-                    if msg_id := queued_message.message.msg_id == 0:
-                        msg_id = MessageTracker.get_next()
-                    send_message = MessageBuilder().build_powerlink31_message(
-                        msg_id,
-                        queued_message.message.data,
-                        queued_message.message.msg_type == VIS_ACK,
-                    )
-                else:
-                    # For a Powerlink message, we just forward the original data
-                    send_message = queued_message.message
-
                 if self.send_non_pl31_messages:
-                    self.transport.write(send_message.data)
-                    # _LOGGER.info("SENT: %s", send_message.data)
+                    self.transport.write(queued_message.message.data)
                 else:
-                    self.transport.write(send_message.raw_data)
-                    # _LOGGER.info("SENT: %s", send_message.raw_data)
+                    self.transport.write(queued_message.message.raw_data)
+
                 self.last_sent_message = dt.datetime.now()
                 log_message(
                     "%s->%s %s-%s %s %s",
                     queued_message.source,
                     self.name,
                     queued_message.destination_client_id,
-                    msg_id
-                    if isinstance(queued_message.message, NonPowerLink31Message)
-                    else queued_message.message.msg_id,
+                    queued_message.message.msg_id,
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
                     level=2 if queued_message.message.msg_type == VIS_ACK else 1,

@@ -7,11 +7,9 @@ import datetime as dt
 import logging
 from socket import AF_INET
 
-from ..builder import MessageBuilder, NonPowerLink31Message
 from ..const import KEEPALIVE_TIMER, VIS_ACK, ConnectionName
 from ..events import Event, EventType, async_fire_event, fire_event, subscribe
 from ..helpers import log_message
-from ..message_tracker import MessageTracker
 from .message import QueuedMessage
 from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
@@ -72,6 +70,7 @@ class ServerConnection:
     def get_client_id(self, transport: asyncio.Transport) -> str:
         """Generate client_id."""
         return f"P{transport.get_extra_info('peername')[1]}"
+        # return f"C{self.client_count + 1}"
 
     def get_first_client_id(self):
         """Get first connected client id."""
@@ -173,32 +172,17 @@ class ServerConnection:
             client = self.clients[queued_message.destination_client_id]
 
             if client.transport:
-                if isinstance(queued_message.message, NonPowerLink31Message):
-                    # Need to build powerlink message before we send
-                    if msg_id := queued_message.message.msg_id == 0:
-                        msg_id = MessageTracker.get_next()
-                    send_message = MessageBuilder().build_powerlink31_message(
-                        msg_id,
-                        queued_message.message.data,
-                        queued_message.message.msg_type == VIS_ACK,
-                    )
-                else:
-                    # For a Powerlink message, we just forward the original data
-                    send_message = queued_message.message
-
                 if self.send_non_pl31_messages:
-                    client.transport.write(send_message.data)
+                    client.transport.write(queued_message.message.data)
                 else:
-                    client.transport.write(send_message.raw_data)
+                    client.transport.write(queued_message.message.raw_data)
 
                 log_message(
                     "%s->%s %s-%s %s %s",
                     queued_message.source,
                     self.name,
                     queued_message.destination_client_id,
-                    msg_id
-                    if isinstance(queued_message.message, NonPowerLink31Message)
-                    else queued_message.message.msg_id,
+                    queued_message.message.msg_id,
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
                     level=2 if queued_message.message.msg_type == VIS_ACK else 1,
