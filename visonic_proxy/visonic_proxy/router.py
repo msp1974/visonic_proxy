@@ -12,8 +12,8 @@ from .const import (
     ACTION_COMMAND,
     ADM_ACK,
     ADM_CID,
+    ALARM_MONITOR_NEEDS_ACKS,
     ALARM_MONITOR_SENDS_ACKS,
-    DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE,
     DUH,
     NAK,
     VIS_ACK,
@@ -22,6 +22,7 @@ from .const import (
     ManagedMessages,
 )
 from .events import Event, EventType, async_fire_event, subscribe
+from .filter import is_filtered
 from .helpers import log_message
 
 _LOGGER = logging.getLogger(__name__)
@@ -148,9 +149,29 @@ class MessageRouter:
     async def alarm_router(self, event: Event):
         """Route Alarm received VIS-BBA and *ADM-CID messages."""
         if self._connection_coordinator.is_disconnected_mode:
-            # If in disconnected mode and Alarm Monitor does not send ACKs, send one to Alarm.
-            if event.event_data.msg_type == VIS_BBA and not ALARM_MONITOR_SENDS_ACKS:
+            # if disconnected from Visonic
+            if event.event_data.msg_type == VIS_BBA and (
+                # No Monitor or Visonic connected
+                not self._connection_coordinator.monitor_server.clients
+                # Monitor connected but it doesn't send ACKs
+                or not ALARM_MONITOR_SENDS_ACKS
+            ):
+                # Send ACK from CM to Alarm
                 await self.send_ack_message(event)
+
+            # For loggin what Alarm sent
+            if not self._connection_coordinator.monitor_server.clients:
+                log_message(
+                    "%s->%s %s-%s %s %s",
+                    event.name,
+                    ConnectionName.CM,
+                    event.client_id,
+                    f"{event.event_data.msg_id:0>4}",
+                    event.event_data.msg_type,
+                    event.event_data.data.hex(" "),
+                    level=2 if event.event_data.msg_type == VIS_ACK else 1,
+                )
+
         else:
             # If not in disconnected mode, forward everything to Visonic
             await self.forward_message(ConnectionName.VISONIC, event.client_id, event)
@@ -167,20 +188,7 @@ class MessageRouter:
                 and ACK_B0_03_MESSAGES
                 and event.event_data.message_class == "b0"
             ):
-                log_message("CREATING ACK: %s", event, level=6)
                 await self.send_ack_message(event)
-            if (
-                self._connection_coordinator.download_mode
-                and DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE
-            ):
-                log_message(
-                    "Not forwardind to %s as DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE set to %s",
-                    ConnectionName.ALARM_MONITOR,
-                    DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE,
-                    level=2,
-                )
-                # Do not forward b0 messages in download mode
-                return
 
             # Set things going to Alarm Monitor that do not need ACKs
             requires_ack = True
@@ -237,25 +245,29 @@ class MessageRouter:
         # Respond to command requests
         if event.event_data.data[1:2].hex().lower() == ACTION_COMMAND.lower():
             await self.do_action_command(event)
+            return
 
-        elif event.event_data.data == bytes.fromhex(ManagedMessages.STOP):
-            await self.forward_message(
-                ConnectionName.ALARM, alarm_client_id, event, requires_ack=True
-            )
+        # Set DOWNLOAD mode
+        if event.event_data.data == bytes.fromhex(ManagedMessages.DOWNLOAD_MODE):
+            # Alarm Monitor has requested to download EPROM.  Need to disconnect Visonic
+            # and only reconnect when Monitor sends DOWNLOAD_EXIT or timesout after 5 mins
+            await self._connection_coordinator.set_stealth_mode(True)
 
-        else:
-            await self.forward_message(
-                ConnectionName.ALARM, alarm_client_id, event, requires_ack=True
-            )
+        # Unset DOWNLOAD mode
+        if event.event_data.data == bytes.fromhex(ManagedMessages.EXIT_DOWNLOAD_MODE):
+            await self._connection_coordinator.set_stealth_mode(False)
 
-            if event.event_data.data == bytes.fromhex(ManagedMessages.DOWNLOAD_MODE):
-                # Alarm Monitor has requested to download EPROM.  Need to disconnect Visonic
-                # and only reconnect when Monitor sends DOWNLOAD_EXIT or timesout after 5 mins
-                await self._connection_coordinator.set_download_mode(True)
-            elif event.event_data.data == bytes.fromhex(
-                ManagedMessages.EXIT_DOWNLOAD_MODE
-            ):
-                await self._connection_coordinator.set_download_mode(False)
+        # Filter messages from being sent to Alarm
+        if is_filtered(event.event_data.data):
+            log_message("Not sending message due to filter", level=2)
+            if ALARM_MONITOR_NEEDS_ACKS:
+                await self.send_ack_message(event)
+            return
+
+        # Forward message to Alarm
+        await self.forward_message(
+            ConnectionName.ALARM, alarm_client_id, event, requires_ack=True
+        )
 
     async def do_action_command(self, event: Event):
         """Perform command from ACTION COMMAND message."""
@@ -313,7 +325,16 @@ class MessageRouter:
     async def send_ack_message(self, event: Event):
         """Send ACK message."""
         ack_message = self._message_builer.build_ack_message(
-            event.event_data.msg_id, not self._connection_coordinator.download_mode
+            event.event_data.msg_id, not self._connection_coordinator.stealth_mode
+        )
+        log_message(
+            "Generating ACK: %s -> %s %s %s %s",
+            ConnectionName.CM,
+            event.name,
+            event.client_id,
+            event.event_data.msg_id,
+            ack_message.data.hex(" "),
+            level=4,
         )
         await self._connection_coordinator.queue_message(
             ConnectionName.CM, 0, event.name, event.client_id, ack_message
