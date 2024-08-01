@@ -223,7 +223,6 @@ class ConnectionCoordinator:
             visonic_client = self.visonic_clients[client_id]
             if visonic_client.connected:
                 await visonic_client.shutdown()
-            self.visonic_clients[client_id] = None
             del self.visonic_clients[client_id]
 
     async def visonic_connect_request_event(self, event: Event):
@@ -235,7 +234,7 @@ class ConnectionCoordinator:
             client_id = event.client_id
 
         if client_id and client_id not in self.visonic_clients and self.connect_visonic:
-            log_message("Connecting Visonic Client", level=1)
+            log_message("Connecting Visonic Client %s", client_id, level=1)
             await self.start_client_connection(client_id)
 
     async def set_download_mode(self, enable: bool = False):

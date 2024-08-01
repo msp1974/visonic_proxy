@@ -39,7 +39,7 @@ class Watchdog:
         ]
 
         self._schedule_next_run()
-        _LOGGER.info("Started %s Watchdog Timer", self.name)
+        log_message("Started %s Watchdog Timer", self.name, level=5)
 
     def _schedule_next_run(self):
         """Schedule next run of watchdog."""
@@ -87,10 +87,11 @@ class Watchdog:
                 )
             ]
             for client_id in clients_to_disconnect:
-                _LOGGER.info(
+                log_message(
                     "WATCHDOG -> Disconnecting %s %s due to inactivity",
                     self.name,
                     client_id,
+                    level=1,
                 )
                 fire_event(Event(self.name, EventType.REQUEST_DISCONNECT, client_id))
                 with contextlib.suppress(KeyError):

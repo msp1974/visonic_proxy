@@ -131,8 +131,12 @@ class ClientConnection:
             try:
                 if self.send_non_pl31_messages:
                     self.transport.write(queued_message.message.data)
+                    log_message("DATA SENT: %s", queued_message.message.data, level=6)
                 else:
                     self.transport.write(queued_message.message.raw_data)
+                    log_message(
+                        "DATA SENT: %s", queued_message.message.raw_data, level=6
+                    )
 
                 self.last_sent_message = dt.datetime.now()
                 log_message(
@@ -140,7 +144,7 @@ class ClientConnection:
                     queued_message.source,
                     self.name,
                     queued_message.destination_client_id,
-                    queued_message.message.msg_id,
+                    f"{queued_message.message.msg_id:0>4}",
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
                     level=2 if queued_message.message.msg_type == VIS_ACK else 1,

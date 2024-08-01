@@ -174,15 +174,19 @@ class ServerConnection:
             if client.transport:
                 if self.send_non_pl31_messages:
                     client.transport.write(queued_message.message.data)
+                    log_message("DATA SENT: %s", queued_message.message.data, level=6)
                 else:
                     client.transport.write(queued_message.message.raw_data)
+                    log_message(
+                        "DATA SENT: %s", queued_message.message.raw_data, level=6
+                    )
 
                 log_message(
                     "%s->%s %s-%s %s %s",
                     queued_message.source,
                     self.name,
                     queued_message.destination_client_id,
-                    queued_message.message.msg_id,
+                    f"{queued_message.message.msg_id:0>4}",
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
                     level=2 if queued_message.message.msg_type == VIS_ACK else 1,
