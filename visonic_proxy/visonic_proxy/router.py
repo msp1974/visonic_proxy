@@ -163,8 +163,7 @@ class MessageRouter:
             # If in disconnected mode and Alarm Monitor does not send ACKs, send one to Alarm.
             if event.event_data.msg_type == VIS_BBA and not ALARM_MONITOR_SENDS_ACKS:
                 await self.send_ack_message(event)
-
-        elif not self._connection_coordinator.is_disconnected_mode:
+        else:
             # If not in disconnected mode, forward everything to Visonic
             await self.forward_message(ConnectionName.VISONIC, event.client_id, event)
 
