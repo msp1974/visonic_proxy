@@ -32,14 +32,16 @@ VISONIC_MONITOR_PORT = 5003
 VISONIC_RECONNECT_INTERVAL = 10
 KEEPALIVE_TIMER = 30  # Send Keepalive if no messages in 30 seconds
 WATHCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill it.
-ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
+ACK_TIMEOUT = 3  # How long to wait for ACK before continuing
 
 
 ALARM_MONITOR_SENDS_ACKS = True
 ALARM_MONITOR_NEEDS_ACKS = True
 ACK_B0_03_MESSAGES = True
-DO_NOT_FORWARD_B0_IN_DOWNLOAD_MODE = False
-SEND_E0_MESSAGES = False
+SEND_E0_MESSAGES = True
+
+FILTER_STD_COMMANDS = []
+FILTER_B0_COMMANDS = []
 
 
 TEXT_UNKNOWN = "UNKNOWN"
