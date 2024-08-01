@@ -234,19 +234,35 @@ class ConnectionCoordinator:
         else:
             client_id = event.client_id
 
-        if client_id and client_id not in self.visonic_clients:
+        if client_id and client_id not in self.visonic_clients and self.connect_visonic:
             log_message("Connecting Visonic Client", level=1)
             await self.start_client_connection(client_id)
 
-    async def do_download_mode(self, enable: bool = False):
+    async def set_download_mode(self, enable: bool = False):
         """Disconnect Visonic and don't let reconnect for 5 mins.
 
         This is experimental to see if allows HA integration to load
         without too much interuption.
         """
+        client_id = self.alarm_server.get_first_client_id()
         if enable:
+            _LOGGER.info("Setting Download Mode")
             # Stop any connecting to Visonic
             self.connect_visonic = False
+
+            # If Visonic connected, disconnect it
+            client_id = self.alarm_server.get_first_client_id()
+            if self.visonic_clients.get(client_id):
+                await self.stop_client_connection(client_id)
+
+        else:
+            _LOGGER.info("Exiting Download Mode")
+            self.connect_visonic = True
+            # Set reconnection timed event for Visonic
+            event = Event(
+                name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
+            )
+            await async_fire_event_later(3, event)
 
     async def connection_event(self, event: Event):
         """Handle connection event."""
@@ -262,6 +278,12 @@ class ConnectionCoordinator:
             ConnectionStatus.CONNECTED,
             send_non_pl31_messages=non_pl31_messages,
         )
+
+        # Send status message on all disconnection events
+        if self.monitor_server.clients:
+            await self.send_status_message(
+                ConnectionName.ALARM_MONITOR, self.monitor_server.get_first_client_id()
+            )
 
         if event.name == ConnectionName.ALARM:
             self.webserver.unset_request_to_connect()
@@ -304,10 +326,10 @@ class ConnectionCoordinator:
         self.flow_manager.unregister_connection(event.name, event.client_id)
 
         # Send status message on all disconnection events
-        # if self.monitor_server.clients:
-        #    await self.send_status_message(
-        #        ConnectionName.ALARM_MONITOR, self.monitor_server.get_first_client_id()
-        #    )
+        if self.monitor_server.clients:
+            await self.send_status_message(
+                ConnectionName.ALARM_MONITOR, self.monitor_server.get_first_client_id()
+            )
 
         if event.name == ConnectionName.ALARM:
             # Set webserver to reconnect if no clients

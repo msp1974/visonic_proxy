@@ -214,19 +214,34 @@ class MessageRouter:
         """
         # TODO: Here we need to add a filter to drop messages but still ACK them
         # and also to respond to E0 requests
+        alarm_client_id = (
+            self._connection_coordinator.alarm_server.get_first_client_id()
+        )
+
+        _LOGGER.info("HA ROUTER: %s", event)
 
         # Respond to command requests
         if event.event_data.data[1:2].hex().lower() == ACTION_COMMAND.lower():
             await self.do_action_command(event)
 
-        elif (
-            client_id := self._connection_coordinator.alarm_server.get_first_client_id()
-        ):
-            req_ack = True
-            if event.event_data.data == bytes.fromhex(ManagedMessages.STOP):
-                # Do not pass this
-                return
-            await self.forward_message(ConnectionName.ALARM, client_id, event, req_ack)
+        elif event.event_data.data == bytes.fromhex(ManagedMessages.STOP):
+            await self.forward_message(
+                ConnectionName.ALARM, alarm_client_id, event, requires_ack=False
+            )
+
+        else:
+            await self.forward_message(
+                ConnectionName.ALARM, alarm_client_id, event, requires_ack=True
+            )
+
+            if event.event_data.data == bytes.fromhex(ManagedMessages.DOWNLOAD_MODE):
+                # Alarm Monitor has requested to download EPROM.  Need to disconnect Visonic
+                # and only reconnect when Monitor sends DOWNLOAD_EXIT or timesout after 5 mins
+                await self._connection_coordinator.set_download_mode(True)
+            elif event.event_data.data == bytes.fromhex(
+                ManagedMessages.EXIT_DOWNLOAD_MODE
+            ):
+                await self._connection_coordinator.set_download_mode(False)
 
     async def do_action_command(self, event: Event):
         """Perform command from ACTION COMMAND message."""
