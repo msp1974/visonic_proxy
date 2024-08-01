@@ -218,8 +218,6 @@ class MessageRouter:
             self._connection_coordinator.alarm_server.get_first_client_id()
         )
 
-        _LOGGER.info("HA ROUTER: %s", event)
-
         # Respond to command requests
         if event.event_data.data[1:2].hex().lower() == ACTION_COMMAND.lower():
             await self.do_action_command(event)
