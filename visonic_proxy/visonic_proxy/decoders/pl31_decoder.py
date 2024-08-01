@@ -16,7 +16,7 @@ class PowerLink31Message:
     crc16: str
     length: str
     msg_type: str
-    msg_id: str
+    msg_id: int
     account_id: str
     panel_id: str
     message_class: str
@@ -57,7 +57,7 @@ class PowerLink31MessageDecoder:
                 crc16=crc16,
                 length=length,
                 msg_type=msg_type,
-                msg_id="0000",
+                msg_id=0,
                 account_id="0",
                 panel_id="0",
                 message_class="",
@@ -75,7 +75,7 @@ class PowerLink31MessageDecoder:
             crc16=crc16,
             length=length,
             msg_type=msg_type,
-            msg_id=msg_id,
+            msg_id=int(msg_id),
             account_id=account_id,
             panel_id=panel_id,
             message_class=message_class,

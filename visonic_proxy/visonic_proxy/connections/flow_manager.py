@@ -363,13 +363,17 @@ class FlowManager:
         """
         if self.cb_send_message:
             try:
+                # _LOGGER.info("Q: %s", queued_message)
                 if isinstance(queued_message.message, NonPowerLink31Message):
                     # Need to build powerlink message before we send
                     if (
-                        msg_id := queued_message.message.msg_id == 0
+                        queued_message.message.msg_id == 0
                         and queued_message.destination != ConnectionName.ALARM_MONITOR
                     ):
                         msg_id = MessageTracker.get_next()
+                    else:
+                        # msgid will be populated if this is an ACK from CM
+                        msg_id = queued_message.message.msg_id
 
                     queued_message.message = MessageBuilder().build_powerlink31_message(
                         msg_id,

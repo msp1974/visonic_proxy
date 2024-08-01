@@ -193,9 +193,12 @@ class MessageRouter:
             # Manage the disconnect message comming from Visonic to the Alarm
             # Do not forward to Alarm, but send ACK back to Visonic and then request
             # a disconnect for the Visonic connection.
+            log_message(
+                "%s %s requested to disconnect", event.name, event.client_id, level=1
+            )
             await self.send_ack_message(event)
             await asyncio.sleep(1)
-            _LOGGER.info("Requesting Visonic to disconnect")
+
             await self._connection_coordinator.stop_client_connection(event.client_id)
 
             # As we do not forward this disconnect message to the Alarm in order to keep it
