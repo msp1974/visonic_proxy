@@ -10,6 +10,7 @@ from ..builder import MessageBuilder, NonPowerLink31Message
 from ..const import (
     MESSAGE_PORT,
     PROXY_MODE,
+    SEND_E0_MESSAGES,
     VISONIC_HOST,
     VISONIC_RECONNECT_INTERVAL,
     ConnectionName,
@@ -71,6 +72,7 @@ class ConnectionCoordinator:
         self.initial_startup: bool = True
 
         self.connect_visonic: bool = PROXY_MODE
+        self.download_mode: bool = False
 
     @property
     def is_disconnected_mode(self):
@@ -244,6 +246,7 @@ class ConnectionCoordinator:
         without too much interuption.
         """
         client_id = self.alarm_server.get_first_client_id()
+        self.download_mode = enable
         if enable:
             _LOGGER.info("Setting Download Mode")
             # Stop any connecting to Visonic
@@ -358,22 +361,23 @@ class ConnectionCoordinator:
         Used to allow management of this Connection Manager from the Monitor Connection
         """
         # Alarm connection status
-        alarm_status = len(self.alarm_server.clients)
-        visonic_status = len(self.visonic_clients)
-        monitor_status = len(self.monitor_server.clients)
+        if SEND_E0_MESSAGES:
+            alarm_status = len(self.alarm_server.clients)
+            visonic_status = len(self.visonic_clients)
+            monitor_status = len(self.monitor_server.clients)
 
-        message_queue = self.flow_manager.sender_queue.qsize()
+            message_queue = self.flow_manager.sender_queue.qsize()
 
-        msg = f"e0 {alarm_status:02x} {visonic_status:02x} {monitor_status:02x} {message_queue:02x} 43"
-        message = MessageBuilder().message_preprocessor(bytes.fromhex(msg))
-        await self.queue_message(
-            ConnectionName.CM,
-            0,
-            destination,
-            client_id,
-            message,
-            requires_ack=False,
-        )
+            msg = f"e0 {alarm_status:02x} {visonic_status:02x} {monitor_status:02x} {message_queue:02x} 43"
+            message = MessageBuilder().message_preprocessor(bytes.fromhex(msg))
+            await self.queue_message(
+                ConnectionName.CM,
+                0,
+                destination,
+                client_id,
+                message,
+                requires_ack=False,
+            )
 
     def is_connection_ready(self, message: QueuedMessage) -> bool:
         """Return if connection ready to send."""
