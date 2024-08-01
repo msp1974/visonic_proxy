@@ -218,38 +218,19 @@ class FlowManager:
         destination_client_id = None
         for decoded_message in decoded_messages:
             # _LOGGER.info("DECODED MSG: %s", decoded_message)
-            if decoded_message.msg_type in [VIS_ACK, ADM_ACK]:
-                log_message(
-                    "%s %s-%s-> %s %s",
-                    source,
-                    client_id,
-                    decoded_message.msg_id,
-                    "ACK" if decoded_message.msg_type in [VIS_ACK, ADM_ACK] else "NAK",
-                    decoded_message.data.hex(" "),
-                    level=5,
-                )
-            else:
-                log_message(
-                    "%s %s-%s-> %s %s",
-                    source,
-                    client_id,
-                    decoded_message.msg_id,
-                    "MSG",
-                    decoded_message.data.hex(" "),
-                    level=2,
-                )
+            log_message(
+                "%s %s-%s-> %s %s",
+                source,
+                client_id,
+                decoded_message.msg_id,
+                decoded_message.msg_type,
+                decoded_message.data.hex(" "),
+                level=3,
+            )
 
             # If waiting ack and receive ack, set RTS
             # TODO: Is this logic right?
             if not self.is_rts and decoded_message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
-                log_message(
-                    "%s %s-%s received %s,",
-                    source,
-                    client_id,
-                    decoded_message.msg_id,
-                    decoded_message.msg_type,
-                    level=1 if decoded_message.msg_type == NAK else 5,
-                )
                 self.release_send_queue()
 
                 if self.ack_awaiter and (

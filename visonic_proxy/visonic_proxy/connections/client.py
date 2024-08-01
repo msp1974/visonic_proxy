@@ -161,7 +161,7 @@ class ClientConnection:
                     else queued_message.message.msg_id,
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
-                    level=3 if queued_message.message.msg_type == VIS_ACK else 1,
+                    level=2 if queued_message.message.msg_type == VIS_ACK else 1,
                 )
                 # Send message to listeners
                 # Send message to listeners
