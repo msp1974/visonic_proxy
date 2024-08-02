@@ -350,7 +350,9 @@ class FlowManager:
                         )
                     )
 
-                    time.sleep(0.01)
+                    # TODO: Find better way to wait for ACK to be on queue than a blocking sleep.
+                    # Can this be an async function?
+                    time.sleep(0.005)
 
                     self.release_send_queue()
                     return
