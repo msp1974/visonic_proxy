@@ -37,7 +37,7 @@ ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
 
 ALARM_MONITOR_SENDS_ACKS = True
 ALARM_MONITOR_NEEDS_ACKS = True
-ACK_B0_03_MESSAGES = True
+ACK_B0_03_MESSAGES = False
 SEND_E0_MESSAGES = True
 
 FILTER_STD_COMMANDS = []
@@ -106,3 +106,6 @@ class ManagedMessages(StrEnum):
     # Don't really know what this is but alarm sends when HA send a STOP
     # message.
     OUT_OF_DOWNLOAD_MODE = "0d 08 f7 0a"
+
+
+NO_WAIT_FOR_ACK_MESSAGES = [ManagedMessages.STOP]

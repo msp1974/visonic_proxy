@@ -17,6 +17,7 @@ from ..const import (
     ADM_CID,
     ALARM_MONITOR_SENDS_ACKS,
     NAK,
+    NO_WAIT_FOR_ACK_MESSAGES,
     VIS_ACK,
     VIS_BBA,
     ConnectionName,
@@ -425,8 +426,9 @@ class FlowManager:
                 # TODO: Move this decision into the router.py
                 # Set some overides here for known messages that do not get ACKd
                 if (
-                    message.destination == ConnectionName.ALARM_MONITOR
-                    and not ALARM_MONITOR_SENDS_ACKS
+                    message.destination
+                    == (ConnectionName.ALARM_MONITOR and not ALARM_MONITOR_SENDS_ACKS)
+                    or message.message.data.hex(" ") in NO_WAIT_FOR_ACK_MESSAGES
                 ):
                     message.requires_ack = False
 
