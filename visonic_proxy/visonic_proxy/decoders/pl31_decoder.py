@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import logging
 import re
 
-from ..const import NAK
+from ..const import ADM_ACK, ADM_CID, NAK
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class PowerLink31Message:
     crc16: str
     length: str
     msg_type: str
-    msg_id: str
+    msg_id: int
     account_id: str
     panel_id: str
     message_class: str
@@ -44,26 +44,41 @@ class PowerLink31MessageDecoder:
         length = msg_decode[4:8]
         msg_type = re.findall('"([^"]*)"', msg_decode)[0]
 
-        if msg_type == NAK:
+        if msg_type in [ADM_CID, ADM_ACK, NAK]:
+            # These are special messages with slightly different format
             # A NAK does not have any msgid, panel or account info
+            # A *AMD-CID, *ACK have no closing ]
             # Data is empty and followed by a time/date
+            # *ADM-CID: b'\n1ADC00FD"*ADM-CID"0278LXXXXXX#001234[3FDFE5EB....FF14FF56\r'
+            # *ACK: b'\n65F20059"*ACK"0278L25594E#001234[349772....D1605B74\r'
             # NAK: b'\nE5630025"NAK"0000R0L0A0[]_10:10:18,07-30-2024\r'
 
-            # Set message to be time/date
-            msg_start = message.find(b"\x5d")
-            msg = message[msg_start + 2 : -1]
+            if msg_type in [ADM_CID, ADM_ACK]:
+                msg_id = msg_decode[l_index - 4 : l_index]
+                account_id = msg_decode[l_index + 1 : hash_index]
+                panel_id = msg_decode[hash_index + 1 : hash_index + 7]
+                msg = message[msg_start + 1 : -1]
+            else:
+                # NAK message
+                # Set message to be time/date
+                msg = message[msg_start + 3 : -1]
+                msg_id = "0000"
+                account_id = "0"
+                panel_id = "0"
 
             return PowerLink31Message(
                 crc16=crc16,
                 length=length,
                 msg_type=msg_type,
-                msg_id="0000",
-                account_id="0",
-                panel_id="0",
+                msg_id=int(msg_id),
+                account_id=account_id,
+                panel_id=panel_id,
                 message_class="",
                 data=msg,
                 raw_data=message,
             )
+
+        # Otherwise a normal VIS-BBA, VIS-ACK message
 
         msg_id = msg_decode[l_index - 4 : l_index]
         account_id = msg_decode[l_index + 1 : hash_index]
@@ -75,7 +90,7 @@ class PowerLink31MessageDecoder:
             crc16=crc16,
             length=length,
             msg_type=msg_type,
-            msg_id=msg_id,
+            msg_id=int(msg_id),
             account_id=account_id,
             panel_id=panel_id,
             message_class=message_class,

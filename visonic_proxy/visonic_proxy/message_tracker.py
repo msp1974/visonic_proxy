@@ -12,8 +12,7 @@ class MessageTracker:
     @staticmethod
     def get_next():
         """Get next msg id."""
-        MessageTracker.last_message_no += 1
-        return MessageTracker.last_message_no
+        return MessageTracker.last_message_no + 1
 
     @staticmethod
     def get_current():

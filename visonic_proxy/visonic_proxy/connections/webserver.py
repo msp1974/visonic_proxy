@@ -212,7 +212,7 @@ class Webserver:
             )
 
             _LOGGER.info("Webserver started on %s port %s", self.host, self.port)
-        except Exception as ex:  # noqa: BLE001
+        except (OSError, Exception) as ex:
             _LOGGER.error("Unable to start webserver. Error is %s", ex)
         else:
             while self.running:

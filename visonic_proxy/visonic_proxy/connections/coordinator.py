@@ -10,6 +10,7 @@ from ..builder import MessageBuilder, NonPowerLink31Message
 from ..const import (
     MESSAGE_PORT,
     PROXY_MODE,
+    SEND_E0_MESSAGES,
     VISONIC_HOST,
     VISONIC_RECONNECT_INTERVAL,
     ConnectionName,
@@ -71,6 +72,7 @@ class ConnectionCoordinator:
         self.initial_startup: bool = True
 
         self.connect_visonic: bool = PROXY_MODE
+        self.stealth_mode: bool = False
 
     @property
     def is_disconnected_mode(self):
@@ -223,7 +225,6 @@ class ConnectionCoordinator:
             visonic_client = self.visonic_clients[client_id]
             if visonic_client.connected:
                 await visonic_client.shutdown()
-            self.visonic_clients[client_id] = None
             del self.visonic_clients[client_id]
 
     async def visonic_connect_request_event(self, event: Event):
@@ -235,19 +236,21 @@ class ConnectionCoordinator:
             client_id = event.client_id
 
         if client_id and client_id not in self.visonic_clients and self.connect_visonic:
-            log_message("Connecting Visonic Client", level=1)
+            log_message("Connecting Visonic Client %s", client_id, level=1)
             await self.start_client_connection(client_id)
 
-    async def set_download_mode(self, enable: bool = False):
+    async def set_stealth_mode(self, enable: bool = False):
         """Disconnect Visonic and don't let reconnect for 5 mins.
 
         This is experimental to see if allows HA integration to load
         without too much interuption.
         """
         client_id = self.alarm_server.get_first_client_id()
-        if enable:
-            _LOGGER.info("Setting Download Mode")
+
+        if enable and not self.stealth_mode:
+            _LOGGER.info("Entering Stealth Mode")
             # Stop any connecting to Visonic
+            self.stealth_mode = True
             self.connect_visonic = False
 
             # If Visonic connected, disconnect it
@@ -255,14 +258,16 @@ class ConnectionCoordinator:
             if self.visonic_clients.get(client_id):
                 await self.stop_client_connection(client_id)
 
-        else:
-            _LOGGER.info("Exiting Download Mode")
-            self.connect_visonic = True
-            # Set reconnection timed event for Visonic
-            event = Event(
-                name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
-            )
-            await async_fire_event_later(3, event)
+        elif (not enable) and self.stealth_mode:
+            _LOGGER.info("Exiting Stealth Mode")
+            self.stealth_mode = False
+            if PROXY_MODE:
+                self.connect_visonic = True
+                # Set reconnection timed event for Visonic
+                event = Event(
+                    name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
+                )
+                await async_fire_event_later(3, event)
 
     async def connection_event(self, event: Event):
         """Handle connection event."""
@@ -297,10 +302,10 @@ class ConnectionCoordinator:
             if not self.initial_startup:
                 if len(self.visonic_clients) == 1:
                     init_messages = [
-                        ("b0 17 51", ConnectionName.ALARM),
-                        ("b0 17 51", ConnectionName.ALARM),
+                        ("b0 17 51 51 51 0f 24", ConnectionName.ALARM),
                         # ("b0 17 51", ConnectionName.ALARM),
-                        ("b0 17 24", ConnectionName.ALARM),
+                        # ("b0 17 51", ConnectionName.ALARM),
+                        # ("b0 17 0f", ConnectionName.ALARM),
                         # ("b0 17 51", ConnectionName.ALARM),
                     ]
                     for init_message in init_messages:
@@ -359,22 +364,23 @@ class ConnectionCoordinator:
         Used to allow management of this Connection Manager from the Monitor Connection
         """
         # Alarm connection status
-        alarm_status = len(self.alarm_server.clients)
-        visonic_status = len(self.visonic_clients)
-        monitor_status = len(self.monitor_server.clients)
+        if SEND_E0_MESSAGES:
+            alarm_status = len(self.alarm_server.clients)
+            visonic_status = len(self.visonic_clients)
+            monitor_status = len(self.monitor_server.clients)
 
-        message_queue = self.flow_manager.sender_queue.qsize()
+            message_queue = self.flow_manager.sender_queue.qsize()
 
-        msg = f"e0 {alarm_status:02x} {visonic_status:02x} {monitor_status:02x} {message_queue:02x} 43"
-        message = MessageBuilder().message_preprocessor(bytes.fromhex(msg))
-        await self.queue_message(
-            ConnectionName.CM,
-            0,
-            destination,
-            client_id,
-            message,
-            requires_ack=False,
-        )
+            msg = f"e0 {alarm_status:02x} {visonic_status:02x} {monitor_status:02x} {message_queue:02x} 43"
+            message = MessageBuilder().message_preprocessor(bytes.fromhex(msg))
+            await self.queue_message(
+                ConnectionName.CM,
+                0,
+                destination,
+                client_id,
+                message,
+                requires_ack=False,
+            )
 
     def is_connection_ready(self, message: QueuedMessage) -> bool:
         """Return if connection ready to send."""

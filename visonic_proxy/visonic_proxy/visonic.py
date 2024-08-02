@@ -36,13 +36,26 @@ class Runner:
             visonic_clients = list(cc.visonic_clients)
             monitor_clients = list(cc.monitor_server.clients)
             log_message(
-                "CONNECTIONS: Alarm: %s, Visonic: %s, Monitor: %s",
+                "-------------------------------------------------------------------------------------------",
+                level=2,
+            )
+            log_message(
+                "CONNECTIONS: Alarm: %s, Visonic: %s, HA: %s",
                 alarm_clients,
                 visonic_clients,
                 monitor_clients,
-                level=4,
+                level=2,
             )
-            log_message("DISCONNECTED MODE: %s", cc.is_disconnected_mode, level=4)
+            log_message(
+                "MODES: Disconnected Mode: %s, Stealth Mode: %s",
+                cc.is_disconnected_mode,
+                cc.stealth_mode,
+                level=2,
+            )
+            log_message(
+                "-------------------------------------------------------------------------------------------",
+                level=2,
+            )
 
             """
             alarm_q = cc.alarm_server.sender_queue.qsize()

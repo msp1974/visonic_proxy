@@ -7,11 +7,9 @@ import datetime as dt
 import logging
 from socket import AF_INET
 
-from ..builder import MessageBuilder, NonPowerLink31Message
 from ..const import KEEPALIVE_TIMER, VIS_ACK, ConnectionName
 from ..events import Event, EventType, async_fire_event, fire_event, subscribe
 from ..helpers import log_message
-from ..message_tracker import MessageTracker
 from .message import QueuedMessage
 from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
@@ -72,6 +70,7 @@ class ServerConnection:
     def get_client_id(self, transport: asyncio.Transport) -> str:
         """Generate client_id."""
         return f"P{transport.get_extra_info('peername')[1]}"
+        # return f"C{self.client_count + 1}"
 
     def get_first_client_id(self):
         """Get first connected client id."""
@@ -80,41 +79,44 @@ class ServerConnection:
 
     async def start_listening(self):
         """Start server to allow Alarm to connect."""
-        loop = asyncio.get_running_loop()
-        self.server = await loop.create_server(
-            lambda: ConnectionProtocol(
-                self.name,
-                self.client_connected,
-                self.client_disconnected,
-                self.data_received,
-            ),
-            self.host,
-            self.port,
-            family=AF_INET,
-        )
-        log_message(
-            "Listening for %s connection on %s port %s",
-            self.name,
-            self.host,
-            self.port,
-            level=1,
-        )
-
-        # Start watchdog timer
-        if self.run_watchdog:
-            self.watchdog = Watchdog(self.name, 120)
-            self.watchdog.start()
-
-            # listen for watchdog events
-            self.unsubscribe_listeners.extend(
-                [
-                    subscribe(
-                        self.name,
-                        EventType.REQUEST_DISCONNECT,
-                        self.handle_disconnect_event,
-                    ),
-                ]
+        try:
+            loop = asyncio.get_running_loop()
+            self.server = await loop.create_server(
+                lambda: ConnectionProtocol(
+                    self.name,
+                    self.client_connected,
+                    self.client_disconnected,
+                    self.data_received,
+                ),
+                self.host,
+                self.port,
+                family=AF_INET,
             )
+            log_message(
+                "Listening for %s connection on %s port %s",
+                self.name,
+                self.host,
+                self.port,
+                level=1,
+            )
+
+            # Start watchdog timer
+            if self.run_watchdog:
+                self.watchdog = Watchdog(self.name, 120)
+                self.watchdog.start()
+
+                # listen for watchdog events
+                self.unsubscribe_listeners.extend(
+                    [
+                        subscribe(
+                            self.name,
+                            EventType.REQUEST_DISCONNECT,
+                            self.handle_disconnect_event,
+                        ),
+                    ]
+                )
+        except OSError as ex:
+            _LOGGER.error("Unable to start %s server. Error is %s", self.name, ex)
 
     def client_connected(self, transport: asyncio.Transport):
         """Handle connection callback."""
@@ -170,32 +172,21 @@ class ServerConnection:
             client = self.clients[queued_message.destination_client_id]
 
             if client.transport:
-                if isinstance(queued_message.message, NonPowerLink31Message):
-                    # Need to build powerlink message before we send
-                    if msg_id := queued_message.message.msg_id == 0:
-                        msg_id = MessageTracker.get_next()
-                    send_message = MessageBuilder().build_powerlink31_message(
-                        msg_id,
-                        queued_message.message.data,
-                        queued_message.message.msg_type == VIS_ACK,
-                    )
-                else:
-                    # For a Powerlink message, we just forward the original data
-                    send_message = queued_message.message
-
                 if self.send_non_pl31_messages:
-                    client.transport.write(send_message.data)
+                    client.transport.write(queued_message.message.data)
+                    log_message("DATA SENT: %s", queued_message.message.data, level=6)
                 else:
-                    client.transport.write(send_message.raw_data)
+                    client.transport.write(queued_message.message.raw_data)
+                    log_message(
+                        "DATA SENT: %s", queued_message.message.raw_data, level=6
+                    )
 
                 log_message(
                     "%s->%s %s-%s %s %s",
                     queued_message.source,
                     self.name,
                     queued_message.destination_client_id,
-                    msg_id
-                    if isinstance(queued_message.message, NonPowerLink31Message)
-                    else queued_message.message.msg_id,
+                    f"{queued_message.message.msg_id:0>4}",
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
                     level=2 if queued_message.message.msg_type == VIS_ACK else 1,
@@ -287,8 +278,10 @@ class ServerConnection:
         for client_id in self.clients:
             log_message("Disconnecting from %s %s", self.name, client_id, level=1)
             self.disconnect_client(client_id)
-        self.server.close()
-        await self.server.wait_closed()
+
+        if self.server:
+            self.server.close()
+            await self.server.wait_closed()
 
     async def keep_alive_timer(self):
         """Keep alive timer.
