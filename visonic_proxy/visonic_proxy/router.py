@@ -248,7 +248,11 @@ class MessageRouter:
             return
 
         # Set DOWNLOAD mode
-        if event.event_data.data == bytes.fromhex(ManagedMessages.DOWNLOAD_MODE):
+        # TODO: Dont fix this message class here!!
+        if (
+            event.event_data.data == bytes.fromhex(ManagedMessages.BUMP)
+            or event.event_data.message_class == "24"
+        ):
             # Alarm Monitor has requested to download EPROM.  Need to disconnect Visonic
             # and only reconnect when Monitor sends DOWNLOAD_EXIT or timesout after 5 mins
             await self._connection_coordinator.set_stealth_mode(True)
