@@ -101,7 +101,16 @@ class MessageRouter:
             # ALARM
             # ---------------------------------------------------------------
             if event.name == ConnectionName.ALARM:
-                pass
+                # If we have no destination, ie we were not expecting it and from Alarm
+                # If we are not in disconnected mode, send it to Visonic
+                if (
+                    not event.destination
+                    and not self._connection_coordinator.is_disconnected_mode
+                ):
+                    await self.forward_message(
+                        ConnectionName.VISONIC, event.client_id, event
+                    )
+                    return
 
             # ---------------------------------------------------------------
             # VISONIC
