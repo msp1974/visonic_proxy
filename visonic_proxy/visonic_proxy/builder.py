@@ -16,6 +16,7 @@ class NonPowerLink31Message:
 
     msg_type: str
     msg_id: int
+    message_class: str
     data: bytes
 
 
@@ -53,6 +54,7 @@ class MessageBuilder:
         return NonPowerLink31Message(
             msg_type=VIS_ACK,
             msg_id=msg_id,
+            message_class="02",
             data=bytes.fromhex(
                 ManagedMessages.PL_ACK if pl_ack else ManagedMessages.ACK
             ),
@@ -64,7 +66,10 @@ class MessageBuilder:
         0d b0 01 6a 00 43 a0 0a
         """
         return NonPowerLink31Message(
-            msg_type=VIS_BBA, msg_id=0, data=bytes.fromhex(ManagedMessages.KEEPALIVE)
+            msg_type=VIS_BBA,
+            msg_id=0,
+            message_class="b0",
+            data=bytes.fromhex(ManagedMessages.KEEPALIVE),
         )
 
     def build_eprom_rw_mode_message(self) -> str:
@@ -105,8 +110,11 @@ class MessageBuilder:
         else:
             message = self.build_std_request(msg)
 
+        data = bytes.fromhex(message)
+        message_class = data[1:2].hex()
+
         return NonPowerLink31Message(
-            msg_type=msg_type, msg_id=0, data=bytes.fromhex(message)
+            msg_type=msg_type, msg_id=0, message_class=message_class, data=data
         )
 
     def build_std_request(self, command: bytes) -> str:
