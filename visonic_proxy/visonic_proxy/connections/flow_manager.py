@@ -361,7 +361,12 @@ class FlowManager:
     ):
         """Add message to send queue for processing."""
 
-        priority = ConnectionSourcePriority[source.name]
+        # ACKs should always take highest priority
+        # Then in source order
+        if message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
+            priority = 0
+        else:
+            priority = ConnectionSourcePriority[source.name]
 
         queue_entry = QueuedMessage(
             QID.get_next(),
@@ -378,10 +383,10 @@ class FlowManager:
     async def _queue_processor(self):
         """Process send queue."""
         while True:
-            queue_message = await self.sender_queue.get()
-
             # Wait until RTS
             await self.rts.wait()
+
+            queue_message = await self.sender_queue.get()
 
             message: QueuedMessage = queue_message[1]
 
