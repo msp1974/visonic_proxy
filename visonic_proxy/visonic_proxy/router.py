@@ -240,7 +240,7 @@ class MessageRouter:
             # Forward all non managed messages to the Alarm connection
             await self.forward_message(ConnectionName.ALARM, event.client_id, event)
 
-    async def ha_router(self, event: Event):
+    async def hass_router(self, event: Event):
         """Route Alarm Monitor received VIS-BBA messages.
 
         Will receive NonPowerLink31Message in event_data
@@ -252,7 +252,7 @@ class MessageRouter:
         )
 
         # Respond to command requests
-        if event.event_data.data[1:2].hex().lower() == ACTION_COMMAND.lower():
+        if event.event_data.message_class == ACTION_COMMAND.lower():
             await self.do_action_command(event)
             return
 
@@ -341,7 +341,7 @@ class MessageRouter:
             event.event_data.msg_id, not self._connection_coordinator.stealth_mode
         )
         log_message(
-            "Generating ACK: %s -> %s %s %s %s",
+            "AUTO ACK %s -> %s %s %s %s",
             ConnectionName.CM,
             event.name,
             event.client_id,
