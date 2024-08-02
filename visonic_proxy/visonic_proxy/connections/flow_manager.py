@@ -7,6 +7,7 @@ import datetime as dt
 import itertools
 import logging
 import re
+import time
 import traceback
 
 from ..builder import MessageBuilder, NonPowerLink31Message
@@ -304,8 +305,6 @@ class FlowManager:
                         )
                     )
                 ):
-                    self.release_send_queue()
-
                     # Set the destination info for the DATA RECEIVED event
                     # So the router knows where to forward it to
                     destination = self.ack_awaiter.desination
@@ -337,6 +336,23 @@ class FlowManager:
                         )
                     # Reset awaiting ack
                     self.ack_awaiter = None
+
+                    # Send message to listeners
+                    fire_event(
+                        Event(
+                            name=source,
+                            event_type=EventType.DATA_RECEIVED,
+                            client_id=client_id,
+                            event_data=decoded_message,
+                            destination=destination,
+                            destination_client_id=destination_client_id,
+                        )
+                    )
+
+                    time.sleep(0.01)
+
+                    self.release_send_queue()
+                    return
 
             # Send message to listeners
             fire_event(
