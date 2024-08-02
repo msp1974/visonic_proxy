@@ -250,7 +250,10 @@ class FlowManager:
                 try:
                     message_no = decoded_message.msg_id
                     timestamp = dt.datetime.now(dt.UTC)
-                    if message_no != 0:
+                    if message_no != 0 and decoded_message.msg_type in [
+                        VIS_BBA,
+                        VIS_ACK,
+                    ]:
                         MessageTracker.last_message_no = message_no
                         MessageTracker.last_message_timestamp = timestamp
                         log_message(
@@ -270,7 +273,6 @@ class FlowManager:
                     return
 
             # If waiting ack and receive ack, set RTS
-            # TODO: Is this logic right?
             if (
                 not self.is_rts  # Waiting for ACK
                 and decoded_message.msg_type
@@ -291,7 +293,6 @@ class FlowManager:
                         )
                         or (
                             # ACKs comming from the Alarm Monitor are not Powerlink messages and therefore have no message id
-                            # Can I fix that??
                             # This overcomes that
                             source == ConnectionName.ALARM_MONITOR
                             and self.ack_awaiter.desination == ConnectionName.ALARM
