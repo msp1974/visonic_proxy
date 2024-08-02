@@ -81,3 +81,5 @@ visonic_proxy/logs/
 
 visonic_proxy/visonic_proxy/connections/certs/cert.pem
 visonic_proxy/visonic_proxy/connections/certs/private.key
+message.log
+message.log.*
