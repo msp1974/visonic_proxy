@@ -45,12 +45,9 @@ if __name__ == "__main__":
     task = loop.create_task(proxy_server.run(), name="ProxyRunner")
     try:
         loop.run_until_complete(task)
-        # server = loop.run_until_complete(proxy_server.run())
     except KeyboardInterrupt:
         _LOGGER.info("Keyboard interrupted. Exit.")
         task.cancel()
         loop.run_until_complete(proxy_server.stop())
-        # loop.run_until_complete(proxy_server.terminate())
-
     _LOGGER.info("Loop is closed")
     loop.close()
