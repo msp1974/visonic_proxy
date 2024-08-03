@@ -151,7 +151,9 @@ class MessageRouter:
             return
 
         # Route VIS-BBA messages
-        func = f"{event.name.lower()}_router"
+        # Get constant from name
+        name = ConnectionName(event.name).name
+        func = f"{name.lower()}_router"
         if hasattr(self, func):
             await getattr(self, func)(event)
 
@@ -240,7 +242,7 @@ class MessageRouter:
             # Forward all non managed messages to the Alarm connection
             await self.forward_message(ConnectionName.ALARM, event.client_id, event)
 
-    async def hass_router(self, event: Event):
+    async def alarm_monitor_router(self, event: Event):
         """Route Alarm Monitor received VIS-BBA messages.
 
         Will receive NonPowerLink31Message in event_data
@@ -316,7 +318,7 @@ class MessageRouter:
         # TODO: Add here to send or not send based on is connected and a
         # param that just blocks sending.
 
-        await self._connection_coordinator.queue_message(
+        await self._connection_coordinator.flow_manager.queue_message(
             source=event.name,
             source_client_id=event.client_id,
             destination=destination,
@@ -349,7 +351,7 @@ class MessageRouter:
             ack_message.data.hex(" "),
             level=4,
         )
-        await self._connection_coordinator.queue_message(
+        await self._connection_coordinator.flow_manager.queue_message(
             ConnectionName.CM, 0, event.name, event.client_id, ack_message
         )
 
@@ -357,7 +359,7 @@ class MessageRouter:
         """Handle sending keepalive."""
         # TODO: Put in coordinator
         ka_message = self._message_builer.build_keep_alive_message()
-        await self._connection_coordinator.queue_message(
+        await self._connection_coordinator.flow_manager.queue_message(
             ConnectionName.CM,
             0,
             event.name,
