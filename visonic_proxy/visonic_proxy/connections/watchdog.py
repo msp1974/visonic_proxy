@@ -39,7 +39,7 @@ class Watchdog:
         ]
 
         self._schedule_next_run()
-        log_message("Started %s Watchdog Timer", self.name, level=5)
+        log_message("Started %s Watchdog Timer", self.name, level=1)
 
     def _schedule_next_run(self):
         """Schedule next run of watchdog."""
@@ -57,19 +57,12 @@ class Watchdog:
         if self._watchdog_timer and not self._watchdog_timer.cancelled():
             self._watchdog_timer.cancel()
 
-        # if self._task and not self._task.done():
-        #    self._task.cancel()
-        #    while not self._task.done():
-        #        await asyncio.sleep(0)
-
     async def notify_activity(self, event: Event):
         """Update last activity."""
-        # _LOGGER.info("Client %s added to %s watchdog", event.client_id, self.name)
         self._last_activity_tracker[event.client_id] = dt.datetime.now()
 
     def remove_client(self, event: Event):
         """Remove client id from watchdog list."""
-        # _LOGGER.info("Client %s removed from %s watchdog", event.client_id, self.name)
         if self._last_activity_tracker.get(event.client_id):
             del self._last_activity_tracker[event.client_id]
 
