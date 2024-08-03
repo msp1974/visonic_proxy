@@ -2,9 +2,9 @@
 
 from dataclasses import dataclass
 
-from ..builder import NonPowerLink31Message
-from ..const import ConnectionName
-from ..decoders.pl31_decoder import PowerLink31Message
+from .const import ConnectionName
+from .transcoders.builder import NonPowerLink31Message
+from .transcoders.pl31_decoder import PowerLink31Message
 
 
 @dataclass

@@ -1,8 +1,9 @@
 import codecs
 import os
+
 import setuptools
 
-with open("README.md", "r", encoding="utf-8") as fh:
+with open("README.md", encoding="utf-8") as fh:
     long_description = fh.read()
 
 
@@ -17,19 +18,18 @@ def get_version(rel_path):
         if line.startswith("__VERSION__"):
             delim = '"' if '"' in line else "'"
             return line.split(delim)[1]
-    else:
-        raise RuntimeError("Unable to find version string.")
+    raise RuntimeError("Unable to find version string.")
 
 
 setuptools.setup(
-    name="pyvisonicalarm",
-    version=get_version("pyvisonicalarm/__init__.py"),
+    name="visonicproxy",
+    version=get_version("visonic_proxy/__init__.py"),
     author="Mark Parker",
     author_email="msparker@sky.com",
-    description="A simple library for the Visonic Alarm API written in Python 3",
+    description="A Proxy Manager for Visonic PowerLink 3 written in Python 3",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/msp1974/pyvisonicalarm",
+    url="https://github.com/msp1974/visonic_proxy",
     packages=setuptools.find_packages(),
     install_requires=["requests"],
     classifiers=[

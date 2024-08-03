@@ -5,15 +5,21 @@
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
+import os
 import sys
 
-from visonic_proxy.const import LOG_FILES_TO_KEEP, LOG_LEVEL, LOG_TO_FILE
-from visonic_proxy.visonic import Runner
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
+
+from visonic_proxy.const import LOG_FILES_TO_KEEP, LOG_LEVEL, LOG_TO_FILE  # noqa: E402
+from visonic_proxy.visonic import Runner  # noqa: E402
 
 handlers = [logging.StreamHandler(sys.stdout)]
 
 if LOG_TO_FILE:
-    f_handler = RotatingFileHandler("message.log", backupCount=LOG_FILES_TO_KEEP)
+    f_handler = RotatingFileHandler(
+        "../logs/message.log", backupCount=LOG_FILES_TO_KEEP
+    )
     handlers.append(f_handler)
 
 logging.basicConfig(

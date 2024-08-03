@@ -7,11 +7,11 @@ import datetime as dt
 import logging
 from socket import AF_INET
 
-from ..const import KEEPALIVE_TIMER, VIS_ACK, ConnectionName
-from ..events import Event, EventType, async_fire_event, fire_event, subscribe
-from ..helpers import log_message
+from .connection_protocol import ConnectionProtocol
+from .const import KEEPALIVE_TIMER, VIS_ACK, ConnectionName
+from .events import Event, EventType, async_fire_event, fire_event, subscribe
+from .helpers import log_message
 from .message import QueuedMessage
-from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
 
 _LOGGER = logging.getLogger(__name__)

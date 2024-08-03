@@ -20,6 +20,7 @@ RUN \
     && pip3 install -r /tmp/requirements.txt
 
 COPY visonic_proxy /visonic_proxy
+COPY run.sh /run.sh
 
 RUN \
     apk add --no-cache \
@@ -32,6 +33,6 @@ RUN \
 # Set workdir to our add-on persistent data directory.
 WORKDIR /data
 
-RUN chmod a+x /visonic_proxy/run.sh
+RUN chmod a+x /run.sh
 
-CMD [ "/visonic_proxy/run.sh" ]
+CMD [ "/run.sh" ]

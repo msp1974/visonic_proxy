@@ -5,8 +5,7 @@ from collections.abc import Callable
 from enum import StrEnum
 import logging
 
-from .builder import MessageBuilder
-from .connections.coordinator import ConnectionCoordinator
+from .connection_manager import ConnectionCoordinator
 from .const import (
     ACK_B0_03_MESSAGES,
     ACTION_COMMAND,
@@ -22,8 +21,9 @@ from .const import (
     ManagedMessages,
 )
 from .events import Event, EventType, async_fire_event, subscribe
-from .filter import is_filtered
 from .helpers import log_message
+from .message_filter import is_filtered
+from .transcoders.builder import MessageBuilder
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class MessageRouter:
         # Route ACKs - all ACK messages should have a destination populated.  If not, dump it.
         if event.event_data.msg_type in [VIS_ACK, ADM_ACK, NAK, DUH]:
             # TODO: Check this list should have NAK and DUH
-            # TODO: Add here if should create ACK, not send etc
+            # Add here if should create ACK, not send etc
 
             # ---------------------------------------------------------------
             # ALARM
@@ -314,9 +314,6 @@ class MessageRouter:
         if destination == ConnectionName.VISONIC:
             if not self._connection_coordinator.visonic_clients:
                 return
-
-        # TODO: Add here to send or not send based on is connected and a
-        # param that just blocks sending.
 
         await self._connection_coordinator.flow_manager.queue_message(
             source=event.name,

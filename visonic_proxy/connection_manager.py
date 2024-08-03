@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 import logging
 
-from ..builder import MessageBuilder, NonPowerLink31Message
-from ..const import (
+from .connection_client import ClientConnection
+from .connection_server import ServerConnection
+from .const import (
     MESSAGE_PORT,
     PROXY_MODE,
     SEND_E0_MESSAGES,
@@ -16,13 +17,12 @@ from ..const import (
     ConnectionName,
     ConnectionStatus,
 )
-from ..decoders.pl31_decoder import PowerLink31Message
-from ..events import Event, EventType, async_fire_event_later, subscribe
-from ..helpers import log_message
-from .client import ClientConnection
+from .events import Event, EventType, async_fire_event_later, subscribe
 from .flow_manager import FlowManager
+from .helpers import log_message
 from .message import QueuedMessage
-from .server import ServerConnection
+from .transcoders.builder import MessageBuilder, NonPowerLink31Message
+from .transcoders.pl31_decoder import PowerLink31Message
 from .webserver import Webserver
 
 _LOGGER = logging.getLogger(__name__)

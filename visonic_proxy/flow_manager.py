@@ -9,8 +9,7 @@ import logging
 import re
 import traceback
 
-from ..builder import MessageBuilder, NonPowerLink31Message
-from ..const import (
+from .const import (
     ACK_TIMEOUT,
     ADM_ACK,
     ADM_CID,
@@ -23,8 +22,7 @@ from ..const import (
     ConnectionSourcePriority,
     ConnectionStatus,
 )
-from ..decoders.pl31_decoder import PowerLink31Message, PowerLink31MessageDecoder
-from ..events import (
+from .events import (
     Event,
     EventType,
     async_fire_event,
@@ -32,9 +30,11 @@ from ..events import (
     fire_event,
     subscribe,
 )
-from ..helpers import get_connection_id, log_message
-from ..message_tracker import MessageTracker
+from .helpers import get_connection_id, log_message
 from .message import QueuedMessage, QueuedReceivedMessage
+from .message_tracker import MessageTracker
+from .transcoders.builder import MessageBuilder, NonPowerLink31Message
+from .transcoders.pl31_decoder import PowerLink31Message, PowerLink31MessageDecoder
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -176,7 +176,6 @@ class FlowManager:
 
     def set_panel_data(self, panel_id: str, account_id: str):
         """Set panel data in message builder."""
-        # TODO: Better way to do this!
         if not MessageBuilder.alarm_serial:
             MessageBuilder.alarm_serial = panel_id
         if not MessageBuilder.account:
@@ -367,8 +366,6 @@ class FlowManager:
                             )
                         )
 
-                        # TODO: Find better way to wait for ACK to be on queue than a blocking sleep.
-                        # Can this be an async function?
                         await asyncio.sleep(0.005)
 
                         self.release_send_queue()

@@ -10,8 +10,8 @@ from inspect import signature
 import logging
 import traceback
 
-from .builder import NonPowerLink31Message
-from .decoders.pl31_decoder import PowerLink31Message
+from .transcoders.builder import NonPowerLink31Message
+from .transcoders.pl31_decoder import PowerLink31Message
 
 _LOGGER = logging.getLogger(__name__)
 

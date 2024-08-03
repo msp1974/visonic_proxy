@@ -15,8 +15,8 @@ import traceback
 import requests
 import urllib3
 
-from ..const import MESSAGE_LOG_LEVEL, PROXY_MODE, VISONIC_HOST, ConnectionName
-from ..events import Event, EventType, async_fire_event
+from .const import MESSAGE_LOG_LEVEL, PROXY_MODE, VISONIC_HOST, ConnectionName
+from .events import Event, EventType, async_fire_event
 
 urllib3.disable_warnings()
 
