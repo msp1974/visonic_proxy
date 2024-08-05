@@ -1,17 +1,18 @@
 """Handles system event bus."""
 
 import asyncio
-from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 import inspect
-from inspect import signature
 import logging
 import traceback
+from typing import Callable
 
-from .transcoders.builder import NonPowerLink31Message
-from .transcoders.pl31_decoder import PowerLink31Message
+from visonic_proxy.enums import ConnectionName
+from visonic_proxy.helpers import log_message
+
+ALL_CLIENTS = "all"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,103 +29,86 @@ class EventType(StrEnum):
     DATA_SENT = "data_sent"
     SEND_KEEPALIVE = "keepalive"
     ACK_TIMEOUT = "ack_timeout"
+    SET_MODE = "set_mode"
 
 
 @dataclass
 class Event:
     """Class to hold event."""
 
-    name: str
+    name: ConnectionName
     event_type: int
     client_id: str | None = None
-    event_data: str | PowerLink31Message | NonPowerLink31Message | None = None
+    event_data: str | dict | None = None
     destination: str = None
     destination_client_id: str = None
 
 
-class EventSubscribers:
-    """Class to hold subscribers."""
+class Events:
+    """Class to manage events."""
 
-    listeners: dict[str, list[Callable]] = {}
+    def __init__(self):
+        """Initialise."""
+        self.listeners: dict[str, list[Callable]] = {}
 
+    def subscribe(
+        self, name: str, event_type: EventType, callback: Callable
+    ) -> Callable:
+        """Subscribe to events.
 
-_fire_later_tasks: list[asyncio.Task] = []
+        Returns function to unsubscribe
+        """
+        event_id = f"{name}__{event_type}"
+        if event_id in self.listeners:
+            self.listeners[event_id].append(callback)
+        else:
+            self.listeners[event_id] = [callback]
+        # log_message("LISTENERS: %s", self.listeners, level=2)
+        return partial(self._unsubscribe, event_id, callback)
 
+    def _unsubscribe(self, event_id: str, callback: Callable):
+        """Unsubscribe to events."""
+        if event_id in self.listeners:
+            for idx, cb in enumerate(self.listeners[event_id]):
+                if cb == callback:
+                    self.listeners[event_id].pop(idx)
 
-def subscribe(name: str, event_type: EventType, callback: Callable) -> Callable:
-    """Subscribe to events.
+            # Remove key if not more targets
+            if len(self.listeners[event_id]) == 0:
+                del self.listeners[event_id]
 
-    Returns function to unsubscribe
-    """
-    # Ensure any All requests are in lowercase
-    if name.lower() == "all":
-        name = name.lower()
+    async def fire_event_later(self, delay: int, event: Event) -> asyncio.TimerHandle:
+        """Fire event after specified time delay in seconds."""
+        loop = asyncio.get_running_loop()
+        return loop.call_later(delay, self.fire_event, event)
 
-    event_id = f"{name}|{event_type}"
-    if event_id in EventSubscribers.listeners:
-        # Multiple subscribers to this message class
-        # Add callback to list
-        EventSubscribers.listeners[event_id].append(callback)
-    else:
-        EventSubscribers.listeners[event_id] = [callback]
+    async def _async_fire_event(self, event: Event):
+        """Notify event to all listeners."""
+        event_ids = [f"all__{event.event_type}", f"{event.name}__{event.event_type}"]
 
-    return partial(_unsubscribe, event_id, callback)
-
-
-def _unsubscribe(event_id: str, callback: Callable):
-    """Unsubscribe to events."""
-    if event_id in EventSubscribers.listeners:
-        for idx, cb in enumerate(EventSubscribers.listeners[event_id]):
-            if cb == callback:
-                EventSubscribers.listeners[event_id].pop(idx)
-
-    # Remove key if not more targets
-    if (
-        EventSubscribers.listeners.get(event_id)
-        and len(EventSubscribers.listeners[event_id]) == 0
-    ):
-        del EventSubscribers.listeners[event_id]
-
-
-async def async_fire_event_later(delay: int, event: Event) -> asyncio.TimerHandle:
-    """Fire event after specified time delay in seconds."""
-    loop = asyncio.get_running_loop()
-    return loop.call_later(delay, fire_event, event)
-
-
-async def async_fire_event(event: Event):
-    """Notify event to all listeners."""
-
-    event_ids = [f"all|{event.event_type}", f"{event.name}|{event.event_type}"]
-
-    for event_id in event_ids:
-        if event_id in EventSubscribers.listeners:
-            try:
-                for callback in EventSubscribers.listeners[event_id]:
-                    # Verify it can be passed a message parameter
-                    # _LOGGER.info("Firing: %s", event_id)
-                    sig = signature(callable)
-                    params = sig.parameters
-                    if len(params) == 1:
+        for event_id in event_ids:
+            if event_id in self.listeners:
+                try:
+                    for callback in self.listeners[event_id]:
+                        log_message(
+                            "Firing Event: %s - %s", event_id, callback, level=6
+                        )
+                        log_message("Event: %s", event, level=6)
                         if inspect.iscoroutinefunction(callback):
                             await callback(event)
+                            await asyncio.gather()
                         else:
                             callback(event)
-                    elif inspect.iscoroutinefunction(callback):
-                        await callback()
-                    else:
-                        callback()
-            except Exception as ex:  # noqa: BLE001
-                _LOGGER.error("Error dispatching event.  Error is %s", ex)
-                _LOGGER.error(traceback.format_exc())
-                return False
-    return True
+                except Exception as ex:  # noqa: BLE001
+                    _LOGGER.error("Error dispatching event.  Error is %s", ex)
+                    _LOGGER.error(traceback.format_exc())
+                    return False
+        return True
 
-
-def fire_event(event: Event):
-    """Notify event to all listeners."""
-    # loop = asyncio.get_event_loop()
-    asyncio.create_task(  # noqa: RUF006
-        async_fire_event(event), name="Async dispatcher"
-    )
-    return True
+    def fire_event(self, event: Event):
+        """Notify event to all listeners."""
+        # loop = asyncio.get_event_loop()
+        asyncio.create_task(  # noqa: RUF006
+            self._async_fire_event(event), name=f"Fire Event - {event.event_type}"
+        )
+        return True

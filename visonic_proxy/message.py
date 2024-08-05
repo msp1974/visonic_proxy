@@ -2,21 +2,27 @@
 
 from dataclasses import dataclass
 
-from .const import ConnectionName
+from .enums import ConnectionName
 from .transcoders.builder import NonPowerLink31Message
 from .transcoders.pl31_decoder import PowerLink31Message
 
 
 @dataclass
-class QueuedMessage:
-    """Queued message."""
+class RoutableMessage:
+    """Routable message."""
 
-    q_id: int
     source: ConnectionName
     source_client_id: str
     destination: ConnectionName
     destination_client_id: str
     message: PowerLink31Message | NonPowerLink31Message
+
+
+@dataclass
+class QueuedMessage(RoutableMessage):
+    """Queued message."""
+
+    q_id: int
     requires_ack: bool
 
     def __gt__(self, other):

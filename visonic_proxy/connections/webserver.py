@@ -15,24 +15,22 @@ import traceback
 import requests
 import urllib3
 
-from .const import MESSAGE_LOG_LEVEL, PROXY_MODE, VISONIC_HOST, ConnectionName
-from .events import Event, EventType, async_fire_event
+from ..const import PROXY_MODE, VISONIC_HOST
+from ..enums import ConnectionName
+from ..events import Event, EventType
+from ..helpers import log_message
+from ..proxy import Proxy
 
 urllib3.disable_warnings()
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def log_message(message: str, *args, level: int = 5):
-    """Log message to logger if level."""
-    if level <= MESSAGE_LOG_LEVEL:
-        _LOGGER.info(message, *args)
-
-
 class WebResponseController:
     """Class for webresponse control."""
 
     loop: asyncio.AbstractEventLoop = None
+    proxy: Proxy = None
     request_connect: bool = True  # Set to True for startup to make Alarm connect
 
 
@@ -64,7 +62,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         log_message(
             "\x1b[1;36mAlarm HTTPS ->\x1b[0m %s",
             post_body.decode().replace("\n", ""),
-            level=5,
+            level=6,
         )
 
         self.send_response(200)
@@ -90,13 +88,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                         for command in cmds:
                             if command.get("name") == "connect":
                                 # fire event
-                                log_message("Received web connection request", level=6)
+                                log_message("Received web connection request", level=1)
                                 event = Event(
                                     ConnectionName.VISONIC,
-                                    EventType.WEB_REQUEST_CONNECT,
+                                    EventType.REQUEST_CONNECT,
                                 )
                                 future = asyncio.run_coroutine_threadsafe(
-                                    async_fire_event(event),
+                                    WebResponseController.proxy.events._async_fire_event(
+                                        event
+                                    ),
                                     WebResponseController.loop,
                                 )
                                 # Wait for the result with an optional timeout argument
@@ -120,7 +120,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 log_message(
                     "\x1b[1;36mVisonic HTTPS ->\x1b[0m %s",
                     resp.decode().replace("\n", ""),
-                    level=5,
+                    level=6,
                 )
 
                 if not self.wfile.closed:
@@ -151,7 +151,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     log_message(
                         "\x1b[1;36mCM HTTPS ->\x1b[0m %s",
                         resp,
-                        level=5,
+                        level=6,
                     )
 
                     self.send_header(
@@ -179,8 +179,9 @@ class RequestHandler(BaseHTTPRequestHandler):
 class Webserver:
     """Threaded web server."""
 
-    def __init__(self):
+    def __init__(self, proxy: Proxy):
         """Init."""
+        self.proxy = proxy
         self.host = "0.0.0.0"
         self.port = 8443
         self.server: HTTPServer = None
@@ -199,6 +200,7 @@ class Webserver:
         try:
             # Set loop
             WebResponseController.loop = loop
+            WebResponseController.proxy = self.proxy
             dir_path = os.path.dirname(os.path.realpath(__file__))
             ssl_context = SSLContext(PROTOCOL_TLS_SERVER)
             ssl_context.load_cert_chain(
@@ -211,12 +213,25 @@ class Webserver:
                 self.server.socket, server_side=True
             )
 
-            _LOGGER.info("Webserver started on %s port %s", self.host, self.port)
+            log_message(
+                "Webserver listening on %s port %s",
+                self.host,
+                self.port,
+                level=0,
+            )
         except (OSError, Exception) as ex:
-            _LOGGER.error("Unable to start webserver. Error is %s", ex)
+            log_message(
+                "Unable to start webserver. Error is %s", ex, log_level=logging.ERROR
+            )
         else:
             while self.running:
                 self.server.handle_request()
+
+    async def start(self):
+        """Start webserver."""
+        evloop = asyncio.get_running_loop()
+        await evloop.run_in_executor(None, self._webserver, evloop)
+        _LOGGER.info("Webserver stopped")
 
     async def stop(self):
         """Stop webserver."""
@@ -230,9 +245,3 @@ class Webserver:
 
         self.server.socket.close()
         self.server.server_close()
-
-    async def start(self):
-        """Start webserver."""
-        evloop = asyncio.get_running_loop()
-        await evloop.run_in_executor(None, self._webserver, evloop)
-        _LOGGER.info("Webserver stopped")

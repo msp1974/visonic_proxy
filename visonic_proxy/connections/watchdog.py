@@ -6,9 +6,10 @@ import contextlib
 import datetime as dt
 import logging
 
-from .const import ConnectionName
-from .events import Event, EventType, fire_event, subscribe
-from .helpers import log_message
+from ..enums import ConnectionName
+from ..events import Event, EventType
+from ..helpers import log_message
+from ..proxy import Proxy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,8 +20,9 @@ class Watchdog:
     Fires a disconnection event if last activity is longer than inactive period
     """
 
-    def __init__(self, name: ConnectionName, inactive_period: int = 120):
+    def __init__(self, proxy: Proxy, name: ConnectionName, inactive_period: int = 120):
         """Initialise."""
+        self.proxy = proxy
         self.name = name
         self.inactive_period: int = inactive_period
         self._run_watchdog: bool = True
@@ -33,9 +35,15 @@ class Watchdog:
         """Start watchdog timer."""
         # Subscribe to data received
         self._unsubscribe_listeners = [
-            subscribe(self.name, EventType.CONNECTION, self.notify_activity),
-            subscribe(self.name, EventType.DATA_RECEIVED, self.notify_activity),
-            subscribe(self.name, EventType.DISCONNECTION, self.remove_client),
+            self.proxy.events.subscribe(
+                self.name, EventType.CONNECTION, self.notify_activity
+            ),
+            self.proxy.events.subscribe(
+                self.name, EventType.DATA_RECEIVED, self.notify_activity
+            ),
+            self.proxy.events.subscribe(
+                self.name, EventType.DISCONNECTION, self.remove_client
+            ),
         ]
 
         self._schedule_next_run()
@@ -86,7 +94,9 @@ class Watchdog:
                     client_id,
                     level=1,
                 )
-                fire_event(Event(self.name, EventType.REQUEST_DISCONNECT, client_id))
+                self.proxy.events.fire_event(
+                    Event(self.name, EventType.REQUEST_DISCONNECT, client_id)
+                )
                 with contextlib.suppress(KeyError):
                     del self._last_activity_tracker[client_id]
 

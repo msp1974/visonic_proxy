@@ -12,7 +12,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 from visonic_proxy.const import LOG_FILES_TO_KEEP, LOG_LEVEL, LOG_TO_FILE  # noqa: E402
-from visonic_proxy.visonic import Runner  # noqa: E402
+from visonic_proxy.runner import VisonicProxy  # noqa: E402
 
 handlers = [logging.StreamHandler(sys.stdout)]
 
@@ -41,13 +41,12 @@ if __name__ == "__main__":
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    proxy_server = Runner(loop)
-    task = loop.create_task(proxy_server.run(), name="ProxyRunner")
+    proxy_server = VisonicProxy(loop)
+    task = loop.create_task(proxy_server.start(), name="ProxyRunner")
     try:
         loop.run_until_complete(task)
     except KeyboardInterrupt:
         _LOGGER.info("Keyboard interrupted. Exit.")
         task.cancel()
         loop.run_until_complete(proxy_server.stop())
-    _LOGGER.info("Loop is closed")
     loop.close()

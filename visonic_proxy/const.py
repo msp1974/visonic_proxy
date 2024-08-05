@@ -1,6 +1,6 @@
 """Constants."""
 
-from enum import IntEnum, StrEnum
+from enum import StrEnum
 import logging
 
 PROXY_MODE = True
@@ -8,21 +8,13 @@ LOG_LEVEL = logging.INFO
 LOG_TO_FILE = True
 LOG_FILES_TO_KEEP = 10
 
-# TODO: UPDATE THESE!
-# Level of messagestobe logged.
-# 1 just messages and errors/warnings
-# 2 same as 1 plus forward info
-# 3 same as 2 plus keepalives (if in non Proxy mode - in Proxy mode, same as 2)
-# 4 same as 3 plus acks
-# 5 same as 4 plus web messages
-# 6 same as 5 plus full PL31 raw message and not forwarded messages
-
-# TO BE
-# 1 connection/disconnection info
-# 2 same as 1 plus messages
-# 3 same as 2 plus ACKs
-# 4 same as 3 plus ?
-MESSAGE_LOG_LEVEL = 2
+# 1 connection/disconnection info only
+# 2 same as 1 plus sent messages
+# 3 same as 2 plus sent ACKs
+# 4 same as 3 plus received messages
+# 5 same as 4 plus ack waiting messages and builder messages
+# 6 full debug
+MESSAGE_LOG_LEVEL = 5
 
 
 VISONIC_HOST = "52.58.105.181"
@@ -35,8 +27,9 @@ WATHCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill i
 ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
 
 
-ALARM_MONITOR_SENDS_ACKS = True
+ALARM_MONITOR_SENDS_ACKS = False
 ALARM_MONITOR_NEEDS_ACKS = True
+ALARM_MONITOR_SENDS_KEEPALIVES = False
 ACK_B0_03_MESSAGES = False
 SEND_E0_MESSAGES = True
 
@@ -55,41 +48,6 @@ NAK = "NAK"
 
 STATUS_COMMAND = "e0"
 ACTION_COMMAND = "e1"
-
-DISCONNECT_MESSAGE = "0d ad 0a 00 00 00 00 00 00 00 00 00 43 05 0a"
-
-
-class ConnectionType(StrEnum):
-    """Connection Type enum."""
-
-    CLIENT = "client"
-    SERVER = "server"
-
-
-class ConnectionName(StrEnum):
-    """Connection name enum."""
-
-    CM = "ConnMgr"
-    ALARM = "Alarm"
-    VISONIC = "Visonic"
-    ALARM_MONITOR = "HASS"
-
-
-class ConnectionSourcePriority(IntEnum):
-    """Message priority for source."""
-
-    CM = 3
-    ALARM = 1
-    VISONIC = 2
-    ALARM_MONITOR = 3
-
-
-class ConnectionStatus(IntEnum):
-    """Connection status."""
-
-    CONNECTING = 0
-    CONNECTED = 1
-    DISCONNECTING = 2
 
 
 class ManagedMessages(StrEnum):

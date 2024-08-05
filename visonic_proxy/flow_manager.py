@@ -18,21 +18,13 @@ from .const import (
     NO_WAIT_FOR_ACK_MESSAGES,
     VIS_ACK,
     VIS_BBA,
-    ConnectionName,
-    ConnectionSourcePriority,
-    ConnectionStatus,
 )
-from .events import (
-    Event,
-    EventType,
-    async_fire_event,
-    async_fire_event_later,
-    fire_event,
-    subscribe,
-)
-from .helpers import get_connection_id, log_message
-from .message import QueuedMessage, QueuedReceivedMessage
-from .message_tracker import MessageTracker
+from .enums import ConnectionName, ConnectionStatus
+from .events import ALL_CLIENTS, Event, EventType
+from .helpers import log_message
+from .message import QueuedMessage, QueuedReceivedMessage, RoutableMessage
+from .message_router import MessageRouter
+from .proxy import Proxy
 from .transcoders.builder import MessageBuilder, NonPowerLink31Message
 from .transcoders.pl31_decoder import PowerLink31Message, PowerLink31MessageDecoder
 
@@ -65,6 +57,8 @@ class QID:
 class ConnectionInfo:
     """Store connection info."""
 
+    name: ConnectionName
+    client_id: int
     status: ConnectionStatus
     connection_priority: int
     requires_ack: bool
@@ -82,15 +76,14 @@ class FlowManager:
     Will wait until no messages for 0.x seconds before allowing a Monitor injected message
     """
 
-    def __init__(
-        self, send_message_callback: Callable, connection_ready_callback: Callable
-    ):
+    def __init__(self, proxy: Proxy):
         """Initialise."""
 
-        self.cb_send_message = send_message_callback
-        self.cb_connection_ready = connection_ready_callback
+        self.proxy = proxy
+        self.cb_send_message: Callable
+        self.cb_connection_ready: Callable
 
-        self.connection_info: dict[str, ConnectionInfo] = {}
+        self.connection_info: dict[str, dict[int, ConnectionInfo]] = {}
         self.connections = []
 
         self.receive_queue = asyncio.PriorityQueue()
@@ -98,12 +91,29 @@ class FlowManager:
         self.rts = asyncio.Event()
         self.pending_has_connected = asyncio.Event()
 
-        self.rts.set()
-        self.pending_has_connected.set()
+        self.message_receiver_task: asyncio.Task
+        self.message_sender_task: asyncio.Task
+
+        self.message_router = MessageRouter(self.proxy)
 
         self.ack_awaiter: WaitingAck = None
 
-        # Start message queue processor
+        self._unsubscribe_listeners: list[Callable] = []
+
+    async def start(self, send_message_callback: Callable):
+        """Start flow manager."""
+        self.cb_send_message = send_message_callback
+
+        await self.message_router.start(self.queue_message)
+
+        # Subscribe to ack timeout events
+        self._unsubscribe_listeners = [
+            self.proxy.events.subscribe(
+                ALL_CLIENTS, EventType.ACK_TIMEOUT, self.ack_timeout
+            )
+        ]
+
+        # Start message queue processors
         loop = asyncio.get_running_loop()
         self.message_receiver_task = loop.create_task(
             self._receive_queue_processor(), name="Flow Manager Receive Queue Processor"
@@ -111,82 +121,49 @@ class FlowManager:
         self.message_sender_task = loop.create_task(
             self._send_queue_processor(), name="Flow Manager Send Queue Processor"
         )
-        # Subscribe to ack timeout events
-        subscribe("ALL", EventType.ACK_TIMEOUT, self.ack_timeout)
 
-    async def shutdown(self):
+        self.rts.set()
+        self.pending_has_connected.set()
+
+        log_message("Flow Manager started", level=0)
+
+    async def stop(self):
         """Shutdown flow manager."""
+        await self.message_router.stop()
+
+        for unsub in self._unsubscribe_listeners:
+            unsub()
+
         if self.message_sender_task and not self.message_sender_task.done():
             self.message_sender_task.cancel()
 
         if self.message_receiver_task and not self.message_receiver_task.done():
             self.message_receiver_task.cancel()
 
-    def _get_connection_info(
-        self, name: ConnectionName, client_id: str
-    ) -> tuple[str, ConnectionInfo | None]:
-        """Return connection info entry."""
-        connection_id = get_connection_id(name, client_id)
-        return connection_id, self.connection_info.get(connection_id)
-
-    def register_connection(
-        self,
-        name: ConnectionName,
-        client_id: str,
-        connection_status: ConnectionStatus,
-        connection_priority: int = 1,
-        requires_ack: bool = True,
-        send_non_pl31_messages: bool = False,
-    ):
-        """Register a connection to manage within flow manager."""
-        connection_id = get_connection_id(name, client_id)
-
-        # We hold the queue if trying to process a message destined for a pending
-        # connection.  If that connection connects, release the send queue.
-        if (
-            connection_id in self.connection_info
-            and self.connection_info[connection_id].status
-            == ConnectionStatus.CONNECTING
-            and connection_status == ConnectionStatus.CONNECTED
-        ):
-            self.pending_has_connected.set()
-
-        self.connection_info[connection_id] = ConnectionInfo(
-            status=connection_status,
-            connection_priority=connection_priority,
-            requires_ack=requires_ack,
-            send_non_pl31_messages=send_non_pl31_messages,
-        )
-        log_message(
-            "%s %s registered with flow manager as %s",
-            name,
-            client_id,
-            connection_status.name,
-            level=5,
-        )
-
-    def unregister_connection(self, name: ConnectionName, client_id: str):
-        """Unregister connection from flow manager."""
-        connection_id, connection_info = self._get_connection_info(name, client_id)
-        if connection_info:
-            del self.connection_info[connection_id]
-            log_message(
-                "%s %s unregistered with flow manager", name, client_id, level=5
-            )
+        log_message("Flow Manager stopped", level=0)
 
     def set_panel_data(self, panel_id: str, account_id: str):
         """Set panel data in message builder."""
-        if not MessageBuilder.alarm_serial:
-            MessageBuilder.alarm_serial = panel_id
-        if not MessageBuilder.account:
-            MessageBuilder.account = account_id
+        # TODO: Put this in self.proxy
+        if not self.proxy.panel_id:
+            self.proxy.panel_id = panel_id
+        if not self.proxy.account_id:
+            self.proxy.account_id = account_id
 
     def data_received(
         self, source_name: ConnectionName, source_client_id: str, data: bytes
     ):
         """Receive data and add to receive queue."""
+
         self.receive_queue.put_nowait(
             (QID.get_next(), QueuedReceivedMessage(source_name, source_client_id, data))
+        )
+        log_message(
+            "Queued Received Data: %s %s %s",
+            source_name,
+            source_client_id,
+            data,
+            level=6,
         )
 
     async def _receive_queue_processor(self):
@@ -199,18 +176,22 @@ class FlowManager:
             client_id = message.source_client_id
             data = message.data
 
-            log_message("%s %s -> %s", source, client_id, data, level=4)
+            log_message("Retrieved from Receive Queue: %s", message, level=6)
 
-            connection_id, connection_info = self._get_connection_info(
-                source, client_id
-            )
+            connection_info = self.proxy.clients.get_client(source, client_id)
+
             if not connection_info:
                 # This connection is not being managed by flow manager.
                 # Do nothing
+                _LOGGER.warning(
+                    "Flow Manager received from an unregistered connection: %s",
+                    message,
+                )
                 continue
 
             # Update client last received
-            self.connection_info[connection_id].last_received = dt.datetime.now()
+            connection_info.last_received = dt.datetime.now()
+            self.proxy.clients.update(source, client_id, connection_info)
 
             # Filter messages to ignore
 
@@ -218,9 +199,9 @@ class FlowManager:
 
             if connection_info.send_non_pl31_messages:
                 # Convert to a PL31 message
-                decoded_messages.append(MessageBuilder().message_preprocessor(data))
-                log_message("DECODED MSGS: %s", decoded_messages, level=5)
-
+                decoded_messages.append(
+                    MessageBuilder(self.proxy).message_preprocessor(data)
+                )
             else:
                 # It is possible that some messages are multiple messages combined.
                 # Need to split them, process each
@@ -228,7 +209,6 @@ class FlowManager:
                 split_after = ["5d 0d"]
                 rx = re.compile(rf'(?<=({"|".join(split_after)}))[^\b]')
                 messages = [x for x in rx.split(data.hex(" ")) if x not in split_after]
-
                 for message in messages:
                     # Decode PL31 message wrapper
                     # Decode powerlink 31 wrapper
@@ -243,17 +223,15 @@ class FlowManager:
             destination = None
             destination_client_id = None
             for decoded_message in decoded_messages:
-                # _LOGGER.info("DECODED MSG: %s", decoded_message)
                 log_message(
-                    "%s %s-%s-> %s RECEIVED: %s",
+                    "REC << %s %s - %s %s %s",
                     source,
                     client_id,
-                    decoded_message.msg_id,
+                    f"{decoded_message.msg_id:0>4}",
                     decoded_message.msg_type,
                     decoded_message.data.hex(" "),
                     level=4,
                 )
-
                 if source == ConnectionName.ALARM:
                     # Set panel info
                     self.set_panel_data(
@@ -268,13 +246,13 @@ class FlowManager:
                             VIS_BBA,
                             VIS_ACK,
                         ]:
-                            MessageTracker.last_message_no = message_no
-                            MessageTracker.last_message_timestamp = timestamp
+                            self.proxy.last_message_no = message_no
+                            self.proxy.last_message_timestamp = timestamp
                             log_message(
-                                "TRACKING INFO: msg_id: %s, timestamp: %s",
+                                "Tracking Info: msg_id: %s, timestamp: %s",
                                 message_no,
                                 timestamp,
-                                level=5,
+                                level=6,
                             )
                     except ValueError:
                         _LOGGER.warning(
@@ -329,9 +307,9 @@ class FlowManager:
 
                         # If we generated the ACK??
                         # What did I add this for?
-                        if decoded_message.msg_id == 0:
-                            # Assume this is for us if not in Proxy Mode
-                            decoded_message.msg_id = self.ack_awaiter.msg_id
+                        # if decoded_message.msg_id == 0:
+                        # Assume this is for us if not in Proxy Mode
+                        #    decoded_message.msg_id = self.ack_awaiter.msg_id
 
                         log_message(
                             "Received awaited ACK for %s %s from %s %s for msg id %s",
@@ -340,7 +318,7 @@ class FlowManager:
                             source,
                             client_id,
                             decoded_message.msg_id,
-                            level=3,
+                            level=5,
                         )
                         # If ACK and Waiter out of sync, log message
                         # This is accepted above if 1 out
@@ -354,25 +332,8 @@ class FlowManager:
                         # Reset awaiting ack
                         self.ack_awaiter = None
 
-                        # Send message to listeners
-                        fire_event(
-                            Event(
-                                name=source,
-                                event_type=EventType.DATA_RECEIVED,
-                                client_id=client_id,
-                                event_data=decoded_message,
-                                destination=destination,
-                                destination_client_id=destination_client_id,
-                            )
-                        )
-
-                        await asyncio.sleep(0.005)
-
-                        self.release_send_queue()
-                        continue
-
                 # Send message to listeners
-                fire_event(
+                self.proxy.events.fire_event(
                     Event(
                         name=source,
                         event_type=EventType.DATA_RECEIVED,
@@ -383,32 +344,53 @@ class FlowManager:
                     )
                 )
 
+                # Route message
+                await self.message_router.route_message(
+                    RoutableMessage(
+                        source=source,
+                        source_client_id=client_id,
+                        destination=destination,
+                        destination_client_id=destination_client_id,
+                        message=decoded_message,
+                    )
+                )
+
+                if not self.ack_awaiter:
+                    self.release_send_queue()
+
     async def queue_message(
         self,
-        source: ConnectionName,
-        source_client_id: str,
-        destination: ConnectionName,
-        destination_client_id: str,
-        message: PowerLink31Message | NonPowerLink31Message,
+        message: RoutableMessage,
+        # message: PowerLink31Message | NonPowerLink31Message,
         requires_ack: bool = True,
     ):
         """Add message to send queue for processing."""
 
+        log_message(
+            "Queuing Message to %s: %s",
+            message.destination,
+            message,
+            level=6,
+        )
+
         # ACKs should always take highest priority
         # Then in source order
-        if message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
+        # TODO: Get this from slef.proxy.clients
+        if message.message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
             priority = 0
         else:
-            priority = ConnectionSourcePriority[source.name]
+            priority = self.proxy.clients.get_connection_priroity(
+                message.source, message.source_client_id
+            )
 
         queue_entry = QueuedMessage(
-            QID.get_next(),
-            source,
-            source_client_id,
-            destination,
-            destination_client_id,
-            message,
-            requires_ack,
+            q_id=QID.get_next(),
+            source=message.source,
+            source_client_id=message.source_client_id,
+            destination=message.destination,
+            destination_client_id=message.destination_client_id,
+            message=message.message,
+            requires_ack=requires_ack,
         )
         await self.sender_queue.put((priority, queue_entry))
         return True
@@ -423,11 +405,21 @@ class FlowManager:
 
             message: QueuedMessage = queue_message[1]
 
-            connection_id, connection_info = self._get_connection_info(
+            log_message("Retieved from Send Queue: %s", message, level=6)
+
+            # A destination client id of 0 is send to first connection
+            # get_connection_info will return the first client connection is passed 0 as client_id
+            connection_info = self.proxy.clients.get_client(
                 message.destination, message.destination_client_id
             )
 
             if connection_info:
+                # If we did have a desintaiotn client_id of 0
+                # Update the destination client_id in the message from our connection info
+                # Which should now be our first client
+                if message.destination_client_id == 0:
+                    message.destination_client_id = connection_info.id
+
                 # Here we wait if the message is destined for a pending connection until
                 # it has connected.
                 if connection_info.status == ConnectionStatus.CONNECTING:
@@ -449,7 +441,7 @@ class FlowManager:
                     message.requires_ack = False
 
                 # Send message to listeners
-                await async_fire_event(
+                self.proxy.events.fire_event(
                     Event(
                         message.destination,
                         EventType.DATA_SENT,
@@ -472,15 +464,14 @@ class FlowManager:
                         msg_id,
                     )
                     log_message(
-                        "Waiting ACK from %s %s for %s %s for msg id %s",
+                        "Waiting ACK: From %s %s for %s %s for msg id %s",
                         message.destination,
                         message.destination_client_id,
                         message.source,
                         message.source_client_id,
                         message.message.msg_id,
-                        level=3,
+                        level=5,
                     )
-                    log_message("WAITER RECORD: %s", self.ack_awaiter, level=6)
                     await self.wait_for_ack(
                         message.destination, message.destination_client_id, msg_id
                     )
@@ -501,17 +492,24 @@ class FlowManager:
                     if (
                         queued_message.message.msg_id == 0
                         and queued_message.destination != ConnectionName.ALARM_MONITOR
+                        and queued_message.message.msg_type == VIS_BBA
                     ):
-                        msg_id = MessageTracker.get_next()
+                        msg_id = self.proxy.get_next_message_id()
                     else:
                         # msgid will be populated if this is an ACK from CM
                         msg_id = queued_message.message.msg_id
 
-                    queued_message.message = MessageBuilder().build_powerlink31_message(
+                    if queued_message.source == ConnectionName.CM:
+                        log_message("Sending : %s", queued_message, level=6)
+
+                    queued_message.message = MessageBuilder(
+                        self.proxy
+                    ).build_powerlink31_message(
                         msg_id,
                         queued_message.message.data,
                         queued_message.message.msg_type == VIS_ACK,
                     )
+
                 await self.cb_send_message(queued_message)
             except Exception as ex:  # noqa: BLE001
                 _LOGGER.error(
@@ -544,7 +542,7 @@ class FlowManager:
         self.hold_send_queue()
 
         # Create timeout event
-        timeout = await async_fire_event_later(
+        timeout = await self.proxy.events.fire_event_later(
             ACK_TIMEOUT,
             Event(
                 name,
@@ -559,9 +557,11 @@ class FlowManager:
     async def ack_timeout(self, event: Event):
         """ACK timeout callback."""
 
-        _LOGGER.warning(
-            "Timeout waiting for ACK from %s for msg id %s",
+        log_message(
+            "ACK Timeout: Waiting for ACK from %s for msg id %s",
             event.name,
             event.event_data.get("msg_id", "UNKOWN"),
+            level=5,
+            log_level=logging.WARNING,
         )
         self.release_send_queue()
