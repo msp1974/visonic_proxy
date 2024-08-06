@@ -1,3 +1,5 @@
+"""Visonic Proxy setup."""
+
 import codecs
 import os
 
@@ -8,12 +10,14 @@ with open("README.md", encoding="utf-8") as fh:
 
 
 def read(rel_path):
+    """Read file."""
     here = os.path.abspath(os.path.dirname(__file__))
     with codecs.open(os.path.join(here, rel_path), "r") as fp:
         return fp.read()
 
 
 def get_version(rel_path):
+    """Get version from init."""
     for line in read(rel_path).splitlines():
         if line.startswith("__VERSION__"):
             delim = '"' if '"' in line else "'"
