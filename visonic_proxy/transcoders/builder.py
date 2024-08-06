@@ -122,7 +122,7 @@ class MessageBuilder:
         data = bytes.fromhex(message)
         message_class = data[1:2].hex()
 
-        _LOGGER.info("Message Builder Returned: %s, %s", message, extra=MsgLogLevel.L5)
+        _LOGGER.info("Message Builder Returned: %s", message, extra=MsgLogLevel.L5)
 
         return NonPowerLink31Message(
             msg_type=msg_type, msg_id=0, message_class=message_class, data=data
