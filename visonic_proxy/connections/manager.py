@@ -265,7 +265,6 @@ class ConnectionManager:
         mode is the data key
         setting is the data value
         """
-        # TODO: What other modes should we have?
         if Mode.STEALTH in event.event_data:
             await self.set_stealth_mode(event.event_data[Mode.STEALTH])
 
@@ -300,7 +299,7 @@ class ConnectionManager:
                 event = Event(
                     name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
                 )
-                await self.proxy.events.fire_event_later(1, event)
+                self.proxy.events.fire_event_later(1, event)
 
     async def connection_event(self, event: Event):
         """Handle connection event."""
@@ -390,9 +389,7 @@ class ConnectionManager:
                 event = Event(
                     name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
                 )
-                await self.proxy.events.fire_event_later(
-                    VISONIC_RECONNECT_INTERVAL, event
-                )
+                self.proxy.events.fire_event_later(VISONIC_RECONNECT_INTERVAL, event)
 
     async def send_message(self, message: QueuedMessage):
         """Route message to correct connection."""

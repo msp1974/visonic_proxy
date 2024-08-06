@@ -77,7 +77,7 @@ class Events:
             if len(self.listeners[event_id]) == 0:
                 del self.listeners[event_id]
 
-    async def fire_event_later(self, delay: int, event: Event) -> asyncio.TimerHandle:
+    def fire_event_later(self, delay: int, event: Event) -> asyncio.TimerHandle:
         """Fire event after specified time delay in seconds."""
         loop = asyncio.get_running_loop()
         return loop.call_later(delay, self.fire_event, event)
@@ -104,6 +104,10 @@ class Events:
                     _LOGGER.error(traceback.format_exc())
                     return False
         return True
+
+    async def async_fire_event(self, event: Event):
+        """Async fire event."""
+        await self._async_fire_event(event)
 
     def fire_event(self, event: Event):
         """Notify event to all listeners."""

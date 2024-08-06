@@ -542,7 +542,7 @@ class FlowManager:
         self.hold_send_queue()
 
         # Create timeout event
-        timeout = await self.proxy.events.fire_event_later(
+        timeout = self.proxy.events.fire_event_later(
             ACK_TIMEOUT,
             Event(
                 name,
