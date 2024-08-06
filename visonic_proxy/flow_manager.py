@@ -9,7 +9,15 @@ import logging
 import re
 import traceback
 
-from .const import ACK_TIMEOUT, ADM_ACK, ADM_CID, NAK, VIS_ACK, VIS_BBA
+from .const import (
+    ACK_TIMEOUT,
+    ADM_ACK,
+    ADM_CID,
+    MATCH_ACK_MSG_ID,
+    NAK,
+    VIS_ACK,
+    VIS_BBA,
+)
 from .enums import ConnectionName, ConnectionStatus, MsgLogLevel
 from .events import ALL_CLIENTS, Event, EventType
 from .message import QueuedMessage, QueuedReceivedMessage, RoutableMessage
@@ -265,7 +273,11 @@ class FlowManager:
                         and source == self.ack_awaiter.source
                         and client_id == self.ack_awaiter.source_client_id
                         and (
-                            decoded_message.msg_id == self.ack_awaiter.msg_id
+                            (
+                                # Only match msg id if MATCH_ACK_MSG_ID is true - EXPERIMENTAL
+                                decoded_message.msg_id == self.ack_awaiter.msg_id
+                                or not MATCH_ACK_MSG_ID
+                            )
                             or (
                                 # Sometimes Visonic gets out of sync and Alarm sends ACK 1 higher than Visonic waiting for
                                 source == ConnectionName.ALARM
@@ -294,12 +306,6 @@ class FlowManager:
                         destination = self.ack_awaiter.desination
                         destination_client_id = self.ack_awaiter.destination_client_id
 
-                        # If we generated the ACK??
-                        # What did I add this for?
-                        # if decoded_message.msg_id == 0:
-                        # Assume this is for us if not in Proxy Mode
-                        #    decoded_message.msg_id = self.ack_awaiter.msg_id
-
                         _LOGGER.info(
                             "Received awaited ACK for %s %s from %s %s for msg id %s",
                             self.ack_awaiter.desination,
@@ -311,7 +317,12 @@ class FlowManager:
                         )
                         # If ACK and Waiter out of sync, log message
                         # This is accepted above if 1 out
-                        if decoded_message.msg_id != self.ack_awaiter.msg_id:
+                        # It is expected that ACKs from Alarm Monitor will have a message id of 0 as non powerlink message
+                        # so dont log if that is the case
+                        if decoded_message.msg_id != self.ack_awaiter.msg_id and not (
+                            source == ConnectionName.ALARM_MONITOR
+                            and decoded_message.msg_id == 0
+                        ):
                             _LOGGER.warning(
                                 "ACK was out of sync with awaiter. ACK: %s, WAITER: %s",
                                 decoded_message.msg_id,
@@ -538,6 +549,6 @@ class FlowManager:
             "ACK Timeout: Waiting for ACK from %s for msg id %s",
             event.name,
             event.event_data.get("msg_id", "UNKOWN"),
-            extra=MsgLogLevel.L5,
+            extra=MsgLogLevel.L3,
         )
         self.release_send_queue()
