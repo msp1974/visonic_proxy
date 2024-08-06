@@ -27,7 +27,7 @@ WATHCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill i
 ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
 
 
-ALARM_MONITOR_SENDS_ACKS = False
+ALARM_MONITOR_SENDS_ACKS = True
 ALARM_MONITOR_NEEDS_ACKS = True
 ALARM_MONITOR_SENDS_KEEPALIVES = False
 ACK_B0_03_MESSAGES = False
