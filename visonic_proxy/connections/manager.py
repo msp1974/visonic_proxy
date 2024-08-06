@@ -16,7 +16,7 @@ from ..const import (
 from ..enums import ConnectionName, ConnectionPriority, ConnectionStatus, Mode
 from ..events import ALL_CLIENTS, Event, EventType
 from ..flow_manager import FlowManager
-from ..helpers import get_connection_id, log_message
+from ..helpers import log_message
 from ..message import QueuedMessage
 from ..proxy import Proxy
 from .client import ClientConnection
@@ -400,12 +400,9 @@ class ConnectionManager:
             # Select the first connection of type
             connection_info = self.proxy.clients.get_first_client(message.destination)
         else:
-            cid = get_connection_id(message.destination, message.destination_client_id)
-            if cid:
-                # Client id is regsitered with connection manager
-                connection_info = self.proxy.clients.get_client(
-                    message.destination, message.destination_client_id
-                )
+            connection_info = self.proxy.clients.get_client(
+                message.destination, message.destination_client_id
+            )
 
         if connection_info:
             # We have a valid connection info record
