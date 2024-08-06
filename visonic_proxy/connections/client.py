@@ -7,11 +7,13 @@ import logging
 from socket import AF_INET
 import traceback
 
-from .connection_protocol import ConnectionProtocol
-from .const import VIS_ACK
-from .events import Event, EventType, async_fire_event, fire_event, subscribe
-from .helpers import log_message
-from .message import QueuedMessage
+from visonic_proxy.enums import MsgLogLevel
+
+from ..const import VIS_ACK
+from ..events import Event, EventType
+from ..message import QueuedMessage
+from ..proxy import Proxy
+from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,6 +24,7 @@ class ClientConnection:
 
     def __init__(
         self,
+        proxy: Proxy,
         name: str,
         host: str,
         port: int,
@@ -31,6 +34,7 @@ class ClientConnection:
         send_non_pl31_messages: bool = False,
     ):
         """Init."""
+        self.proxy = proxy
         self.name = name
         self.host = host
         self.port = port
@@ -57,9 +61,10 @@ class ClientConnection:
         """Initiate connection to host."""
 
         _LOGGER.info(
-            "Initiating connection to %s on behalf of %s",
+            "Request connection for %s %s",
             self.name,
             self.parent_connection_id,
+            extra=MsgLogLevel.L5,
         )
 
         self.connection_in_progress = True
@@ -84,6 +89,7 @@ class ClientConnection:
             self.name,
             self.port,
             self.parent_connection_id,
+            extra=MsgLogLevel.L1,
         )
 
         # Get ref to transport for writing
@@ -92,13 +98,13 @@ class ClientConnection:
 
         # Start watchdog timer
         if self.run_watchdog:
-            self.watchdog = Watchdog(self.name, 120)
+            self.watchdog = Watchdog(self.proxy, self.name, 120)
             self.watchdog.start()
 
             self.unsubscribe_listeners.extend(
                 [
                     # listen for watchdog events
-                    subscribe(
+                    self.proxy.events.subscribe(
                         self.name,
                         EventType.REQUEST_DISCONNECT,
                         self.handle_disconnect_event,
@@ -107,17 +113,29 @@ class ClientConnection:
             )
 
         # Fire connected event
-        fire_event(
+        # Fire connected event
+        self.proxy.events.fire_event(
             Event(
                 name=self.name,
                 event_type=EventType.CONNECTION,
                 client_id=self.parent_connection_id,
-                event_data={"send_non_pl31_messages": self.send_non_pl31_messages},
+                event_data={
+                    "connection": self,
+                    "send_non_pl31_messages": self.send_non_pl31_messages,
+                },
             )
         )
 
     def data_received(self, _: asyncio.Transport, data: bytes):
         """Handle data received callback."""
+        # Show divider if level 4 loggin or above
+        _LOGGER.info("".rjust(60, "-"), extra=MsgLogLevel.L4)
+        _LOGGER.debug(
+            "Received Data: %s %s - %s",
+            self.name,
+            self.parent_connection_id,
+            data,
+        )
 
         self.last_received_message = dt.datetime.now()
 
@@ -131,34 +149,26 @@ class ClientConnection:
             try:
                 if self.send_non_pl31_messages:
                     self.transport.write(queued_message.message.data)
-                    log_message("DATA SENT: %s", queued_message.message.data, level=6)
+                    _LOGGER.debug("Data Sent: %s", queued_message.message.data)
                 else:
                     self.transport.write(queued_message.message.raw_data)
-                    log_message(
-                        "DATA SENT: %s", queued_message.message.raw_data, level=6
-                    )
+                    _LOGGER.debug("Data Sent: %s", queued_message.message.raw_data)
 
                 self.last_sent_message = dt.datetime.now()
-                log_message(
-                    "%s->%s %s-%s %s %s",
+
+                _LOGGER.info(
+                    "%s->%s %s - %s %s %s",
                     queued_message.source,
                     self.name,
                     queued_message.destination_client_id,
                     f"{queued_message.message.msg_id:0>4}",
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
-                    level=2 if queued_message.message.msg_type == VIS_ACK else 1,
+                    extra=MsgLogLevel.L3
+                    if queued_message.message.msg_type == VIS_ACK
+                    else MsgLogLevel.L2,
                 )
-                # Send message to listeners
-                # Send message to listeners
-                await async_fire_event(
-                    Event(
-                        name=self.name,
-                        event_type=EventType.DATA_SENT,
-                        client_id=queued_message.destination_client_id,
-                        event_data=queued_message.message.data,
-                    )
-                )
+
             except Exception as ex:  # pylint: disable=broad-exception-caught  # noqa: BLE001
                 _LOGGER.error(
                     "Exception occured sending message to %s - %s. %s\n%s",
@@ -178,16 +188,16 @@ class ClientConnection:
     def disconnected(self, transport: asyncio.Transport):
         """Disconnected callback."""
         self.connected = False
-        log_message(
+        _LOGGER.info(
             "%s %s server has disconnected",
             self.name,
             self.parent_connection_id,
-            level=1,
+            extra=MsgLogLevel.L1,
         )
         if transport:
             transport.close()
         # Fire connected event
-        fire_event(
+        self.proxy.events.fire_event(
             Event(
                 name=self.name,
                 event_type=EventType.DISCONNECTION,
@@ -197,11 +207,10 @@ class ClientConnection:
 
     async def shutdown(self):
         """Disconnect from Server."""
-        log_message(
-            "Shutting down connection to %s for %s",
+        _LOGGER.debug(
+            "Shutting down connection to %s %s",
             self.name,
             self.parent_connection_id,
-            level=1,
         )
 
         # Unsubscribe listeners

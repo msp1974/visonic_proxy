@@ -3,8 +3,12 @@
 from dataclasses import dataclass
 import logging
 
-from ..const import VIS_ACK, VIS_BBA, ManagedMessages
+from visonic_proxy.enums import MsgLogLevel
+from visonic_proxy.proxy import Proxy
+
+from ..const import VIS_ACK, VIS_BBA
 from ..crc16 import Crc16Arc
+from ..enums import ManagedMessages
 from .pl31_decoder import PowerLink31Message
 
 _LOGGER = logging.getLogger(__name__)
@@ -31,8 +35,9 @@ class CommandRequest:
 class MessageBuilder:
     """Class to build commands to send to alarm."""
 
-    alarm_serial: str = None
-    account: str = None
+    def __init__(self, proxy: Proxy):
+        """Initialise."""
+        self.proxy = proxy
 
     def _calculate_message_checksum(self, msg: bytearray) -> bytes:
         """Calculate CRC Checksum."""
@@ -90,6 +95,10 @@ class MessageBuilder:
         """
         msg_type = VIS_BBA
 
+        _LOGGER.info(
+            "Message Builder Received - %s", msg.hex(" "), extra=MsgLogLevel.L5
+        )
+
         if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
             if msg[1:2] == b"\x02":
                 # Received ack message.  Use build_ack_message to ensure correct ACK type
@@ -112,6 +121,8 @@ class MessageBuilder:
 
         data = bytes.fromhex(message)
         message_class = data[1:2].hex()
+
+        _LOGGER.info("Message Builder Returned: %s", message, extra=MsgLogLevel.L5)
 
         return NonPowerLink31Message(
             msg_type=msg_type, msg_id=0, message_class=message_class, data=data
@@ -162,7 +173,7 @@ class MessageBuilder:
     def build_b0_partial_request(self, msg: str) -> str:
         """Wrap b0 full command.
 
-        input message should start b0 and end 43
+        input message should start b0 or e0 and end 43
         """
         checksum = self._calculate_message_checksum(bytes.fromhex(msg))
         msg += f" {checksum.hex()}"
@@ -277,7 +288,9 @@ class MessageBuilder:
         msg_initiator = "\n"
         msg_type = "VIS-ACK" if is_ack else "VIS-BBA"
 
-        msg_start = f'"{msg_type}"{msg_id:04}L{self.account}#{self.alarm_serial}['
+        msg_start = (
+            f'"{msg_type}"{msg_id:04}L{self.proxy.account_id}#{self.proxy.panel_id}['
+        )
         msg_end = "]"
         msg_terminator = "\r"
 
@@ -303,8 +316,8 @@ class MessageBuilder:
             length=msg_length,
             msg_type=msg_type,
             msg_id=msg_id,
-            account_id=self.account,
-            panel_id=self.alarm_serial,
+            account_id=self.proxy.account_id,
+            panel_id=self.proxy.panel_id,
             message_class="",
             data=bytearray.fromhex(message),
             raw_data=msg,

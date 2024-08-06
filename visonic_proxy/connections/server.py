@@ -4,14 +4,16 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 import datetime as dt
+import itertools
 import logging
 from socket import AF_INET
 
-from .connection_protocol import ConnectionProtocol
-from .const import KEEPALIVE_TIMER, VIS_ACK, ConnectionName
-from .events import Event, EventType, async_fire_event, fire_event, subscribe
-from .helpers import log_message
-from .message import QueuedMessage
+from ..const import KEEPALIVE_TIMER, VIS_ACK
+from ..enums import ConnectionName, MsgLogLevel
+from ..events import Event, EventType
+from ..message import QueuedMessage
+from ..proxy import Proxy
+from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,6 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 class ClientConnection:
     """Class to hold client connections."""
 
+    port: int
     transport: asyncio.Transport
     last_received_message: dt.datetime = None
     hold_sending: bool = False
@@ -34,6 +37,7 @@ class ServerConnection:
 
     def __init__(
         self,
+        proxy: Proxy,
         name: ConnectionName,
         host: str,
         port: int,
@@ -43,6 +47,7 @@ class ServerConnection:
         send_non_pl31_messages: bool = False,
     ):
         """Init."""
+        self.proxy = proxy
         self.name = name
         self.host = host
         self.port = port
@@ -62,15 +67,27 @@ class ServerConnection:
 
         self.unsubscribe_listeners: list[Callable] = []
 
+        self.id_iter = itertools.count()
+
     @property
     def client_count(self):
         """Get count of clients."""
         return len(self.clients)
 
+    def get_client_ip(self, transport: asyncio.Transport) -> str:
+        """Get ip client has connected on."""
+        return transport.get_extra_info("peername")[0]
+
+    def get_client_port(self, transport: asyncio.Transport) -> int:
+        """Get port client has connected on."""
+        return int(transport.get_extra_info("peername")[1])
+
     def get_client_id(self, transport: asyncio.Transport) -> str:
         """Generate client_id."""
-        return f"P{transport.get_extra_info('peername')[1]}"
-        # return f"C{self.client_count + 1}"
+        port = self.get_client_port(transport)
+        for client_id, connection in self.clients.items():
+            if connection.port == port:
+                return client_id
 
     def get_first_client_id(self):
         """Get first connected client id."""
@@ -92,23 +109,22 @@ class ServerConnection:
                 self.port,
                 family=AF_INET,
             )
-            log_message(
+            _LOGGER.info(
                 "Listening for %s connection on %s port %s",
                 self.name,
                 self.host,
                 self.port,
-                level=1,
             )
 
             # Start watchdog timer
             if self.run_watchdog:
-                self.watchdog = Watchdog(self.name, 120)
+                self.watchdog = Watchdog(self.proxy, self.name, 120)
                 self.watchdog.start()
 
                 # listen for watchdog events
                 self.unsubscribe_listeners.extend(
                     [
-                        subscribe(
+                        self.proxy.events.subscribe(
                             self.name,
                             EventType.REQUEST_DISCONNECT,
                             self.handle_disconnect_event,
@@ -122,42 +138,51 @@ class ServerConnection:
         """Handle connection callback."""
 
         # Add client to clients tracker
-        client_id = self.get_client_id(transport)
-        self.clients[client_id] = ClientConnection(transport, dt.datetime.now())
+        client_port = self.get_client_port(transport)
+        client_id = next(self.id_iter) + 1
+        self.clients[client_id] = ClientConnection(
+            client_port, transport, dt.datetime.now()
+        )
 
-        log_message(
-            "Client connected to %s %s server. Clients: %s",
+        _LOGGER.info(
+            "%s client %s connected from %s",
             self.name,
             client_id,
-            len(self.clients),
-            level=1,
+            self.get_client_ip(transport),
+            extra=MsgLogLevel.L1,
         )
         _LOGGER.debug("Connections: %s", self.clients)
 
         # Fire connected event
-        fire_event(
+        self.proxy.events.fire_event(
             Event(
                 name=self.name,
                 event_type=EventType.CONNECTION,
                 client_id=client_id,
-                event_data={"send_non_pl31_messages": self.send_non_pl31_messages},
+                event_data={
+                    "connection": self,
+                    "send_non_pl31_messages": self.send_non_pl31_messages,
+                },
             )
         )
 
         # If needs keepalive timer, start it
         if self.run_keepalive and not self.keep_alive_timer_task:
-            loop = asyncio.get_running_loop()
-            self.keep_alive_timer_task = loop.create_task(
+            # loop = asyncio.get_running_loop()
+            self.keep_alive_timer_task = asyncio.create_task(
                 self.keep_alive_timer(), name="KeepAlive timer"
             )
 
-            log_message("Started KeepAlive Timer", level=1)
+            _LOGGER.info("Started KeepAlive Timer", extra=MsgLogLevel.L1)
 
     def data_received(self, transport: asyncio.Transport, data: bytes):
         """Handle callback for when data received."""
 
         client_id = self.get_client_id(transport)
         # _LOGGER.info("%s %s -> %s", self.name, client_id, data)
+
+        _LOGGER.info("".rjust(60, "-"), extra=MsgLogLevel.L4)
+        _LOGGER.debug("Received Data: %s %s - %s", self.name, client_id, data)
 
         # Update client last received
         self.clients[client_id].last_received_message = dt.datetime.now()
@@ -168,38 +193,36 @@ class ServerConnection:
     async def send_message(self, queued_message: QueuedMessage):
         """Send message."""
         # Check client is connected
-        if queued_message.destination_client_id in self.clients:
-            client = self.clients[queued_message.destination_client_id]
+        if queued_message.destination_client_id == 0:
+            # If set to 0, send to first client connection
+            client_id = self.get_first_client_id()
+        else:
+            client_id = queued_message.destination_client_id
+
+        if client_id in self.clients:
+            client = self.clients[client_id]
 
             if client.transport:
                 if self.send_non_pl31_messages:
                     client.transport.write(queued_message.message.data)
-                    log_message("DATA SENT: %s", queued_message.message.data, level=6)
+                    _LOGGER.debug("Data Sent: %s", queued_message.message.data)
                 else:
                     client.transport.write(queued_message.message.raw_data)
-                    log_message(
-                        "DATA SENT: %s", queued_message.message.raw_data, level=6
-                    )
+                    _LOGGER.debug("Data Sent: %s", queued_message.message.raw_data)
 
-                log_message(
-                    "%s->%s %s-%s %s %s",
+                _LOGGER.info(
+                    "%s->%s %s - %s %s %s",
                     queued_message.source,
                     self.name,
                     queued_message.destination_client_id,
                     f"{queued_message.message.msg_id:0>4}",
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
-                    level=2 if queued_message.message.msg_type == VIS_ACK else 1,
+                    extra=MsgLogLevel.L3
+                    if queued_message.message.msg_type == VIS_ACK
+                    else MsgLogLevel.L2,
                 )
-                # Send message to listeners
-                await async_fire_event(
-                    Event(
-                        name=self.name,
-                        event_type=EventType.DATA_SENT,
-                        client_id=queued_message.destination_client_id,
-                        event_data=queued_message.message,
-                    )
-                )
+
                 return True
         _LOGGER.error(
             "Unable to send message to %s %s",
@@ -210,7 +233,9 @@ class ServerConnection:
     def client_disconnected(self, transport: asyncio.Transport):
         """Disconnected callback."""
         client_id = self.get_client_id(transport)
-        log_message("Client disconnected from %s %s", self.name, client_id, level=1)
+        _LOGGER.info(
+            "%s client %s disconnected", self.name, client_id, extra=MsgLogLevel.L1
+        )
 
         # Remove client id from list of clients
         try:
@@ -225,16 +250,16 @@ class ServerConnection:
         # If has keepalive timer, stop it if no more clients
         if len(self.clients) == 0:
             if self.keep_alive_timer_task and not self.keep_alive_timer_task.done():
-                log_message(
+                _LOGGER.info(
                     "Stopping keepalive timer for %s due to no connections",
                     self.name,
-                    level=1,
+                    extra=MsgLogLevel.L1,
                 )
                 self.keep_alive_timer_task.cancel()
                 self.keep_alive_timer_task = None
 
         # Send message to listeners
-        fire_event(
+        self.proxy.events.fire_event(
             Event(
                 name=self.name, event_type=EventType.DISCONNECTION, client_id=client_id
             )
@@ -266,17 +291,19 @@ class ServerConnection:
 
         # Stop keep alive timer
         if self.keep_alive_timer_task and not self.keep_alive_timer_task.done():
-            log_message("Stopping keepalive timer for %s", self.name, level=1)
+            _LOGGER.info(
+                "Stopping keepalive timer for %s", self.name, extra=MsgLogLevel.L1
+            )
             self.keep_alive_timer_task.cancel()
-            while not self.keep_alive_timer_task.done():
-                await asyncio.sleep(0.01)
 
         # Stop watchdog
         if self.watchdog:
             await self.watchdog.stop()
 
         for client_id in self.clients:
-            log_message("Disconnecting from %s %s", self.name, client_id, level=1)
+            _LOGGER.info(
+                "Disconnecting from %s %s", self.name, client_id, extra=MsgLogLevel.L1
+            )
             self.disconnect_client(client_id)
 
         if self.server:
@@ -300,7 +327,10 @@ class ServerConnection:
                         ).total_seconds()
                         > KEEPALIVE_TIMER
                     ):
-                        fire_event(
+                        _LOGGER.info(
+                            "Firing KeepAlive timout event", extra=MsgLogLevel.L5
+                        )
+                        self.proxy.events.fire_event(
                             Event(self.name, EventType.SEND_KEEPALIVE, client_id)
                         )
                         await asyncio.sleep(5)

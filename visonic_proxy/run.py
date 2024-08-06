@@ -11,43 +11,104 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-from visonic_proxy.const import LOG_FILES_TO_KEEP, LOG_LEVEL, LOG_TO_FILE  # noqa: E402
-from visonic_proxy.visonic import Runner  # noqa: E402
+from visonic_proxy.const import (  # noqa: E402
+    LOG_FILES_TO_KEEP,
+    LOG_LEVEL,
+    LOG_TO_FILE,
+    MESSAGE_LOG_LEVEL,
+)
+from visonic_proxy.runner import VisonicProxy  # noqa: E402
 
-handlers = [logging.StreamHandler(sys.stdout)]
 
+class MessageLevelFilter(logging.Filter):
+    """Filter messages by message level."""
+
+    def filter(self, record):
+        """Apply filter."""
+
+        if (
+            record.__dict__.get("msglevel", 0) <= MESSAGE_LOG_LEVEL
+            or record.levelno == logging.DEBUG
+        ):
+            return True
+        return False
+
+
+class CustomFormatter(logging.Formatter):
+    """Custom formatter."""
+
+    def format(self, record):
+        """Format record."""
+        fileline = f"[{record.filename.replace(".py", "")}:{record.lineno}]"
+        record.fileline = fileline
+        return super().format(record)
+
+
+messagelevelfilter = MessageLevelFilter()
+
+# Set logging format output
+if LOG_LEVEL == logging.DEBUG:
+    formatter = CustomFormatter(
+        "%(asctime)s %(levelname)-8s %(fileline)-20s %(message)s"
+    )
+else:
+    formatter = CustomFormatter("%(asctime)s %(levelname)-8s %(message)10s")
+
+# Add logging handlers
+handlers = []
+
+# Stream handler to stdout
+s_handler = logging.StreamHandler(sys.stdout)
+s_handler.setFormatter(formatter)
+s_handler.addFilter(messagelevelfilter)
+handlers.append(s_handler)
+
+# File handler
 if LOG_TO_FILE:
     f_handler = RotatingFileHandler(
         "../logs/message.log", backupCount=LOG_FILES_TO_KEEP
     )
+    f_handler.setFormatter(formatter)
+    f_handler.addFilter(messagelevelfilter)
     handlers.append(f_handler)
 
+
+# Initiate logger
+_LOGGER = logging.getLogger("visonic_proxy")
 logging.basicConfig(
-    # force=
     level=LOG_LEVEL,
-    format="%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=handlers,
 )
 
 
-_LOGGER = logging.getLogger(__name__)
+def validate_certs():
+    """Validate certificate files."""
+    if os.path.isfile("./connections/certs/cert.pem") and os.path.isfile(
+        "./connections/certs/private.key"
+    ):
+        return True
+    return False
 
 
 if __name__ == "__main__":
-    # start a new log on each restart
-    if LOG_TO_FILE:
-        f_handler.doRollover()
+    if validate_certs():
+        # start a new log on each restart
+        if LOG_TO_FILE:
+            f_handler.doRollover()
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    proxy_server = Runner(loop)
-    task = loop.create_task(proxy_server.run(), name="ProxyRunner")
-    try:
-        loop.run_until_complete(task)
-    except KeyboardInterrupt:
-        _LOGGER.info("Keyboard interrupted. Exit.")
-        task.cancel()
-        loop.run_until_complete(proxy_server.stop())
-    _LOGGER.info("Loop is closed")
-    loop.close()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        proxy_server = VisonicProxy(loop)
+        task = loop.create_task(proxy_server.start(), name="ProxyRunner")
+        try:
+            loop.run_until_complete(task)
+        except KeyboardInterrupt:
+            _LOGGER.info("Keyboard interrupted. Exit.")
+            task.cancel()
+            loop.run_until_complete(proxy_server.stop())
+        loop.close()
+    else:
+        _LOGGER.error(
+            "Unable to find certificate files.  Please generate these with create_certs.sh"
+        )

@@ -6,9 +6,9 @@ import contextlib
 import datetime as dt
 import logging
 
-from .const import ConnectionName
-from .events import Event, EventType, fire_event, subscribe
-from .helpers import log_message
+from ..enums import ConnectionName, MsgLogLevel
+from ..events import Event, EventType
+from ..proxy import Proxy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,8 +19,9 @@ class Watchdog:
     Fires a disconnection event if last activity is longer than inactive period
     """
 
-    def __init__(self, name: ConnectionName, inactive_period: int = 120):
+    def __init__(self, proxy: Proxy, name: ConnectionName, inactive_period: int = 120):
         """Initialise."""
+        self.proxy = proxy
         self.name = name
         self.inactive_period: int = inactive_period
         self._run_watchdog: bool = True
@@ -33,13 +34,19 @@ class Watchdog:
         """Start watchdog timer."""
         # Subscribe to data received
         self._unsubscribe_listeners = [
-            subscribe(self.name, EventType.CONNECTION, self.notify_activity),
-            subscribe(self.name, EventType.DATA_RECEIVED, self.notify_activity),
-            subscribe(self.name, EventType.DISCONNECTION, self.remove_client),
+            self.proxy.events.subscribe(
+                self.name, EventType.CONNECTION, self.notify_activity
+            ),
+            self.proxy.events.subscribe(
+                self.name, EventType.DATA_RECEIVED, self.notify_activity
+            ),
+            self.proxy.events.subscribe(
+                self.name, EventType.DISCONNECTION, self.remove_client
+            ),
         ]
 
         self._schedule_next_run()
-        log_message("Started %s Watchdog Timer", self.name, level=1)
+        _LOGGER.info("Started %s Watchdog Timer", self.name, extra=MsgLogLevel.L1)
 
     def _schedule_next_run(self):
         """Schedule next run of watchdog."""
@@ -68,7 +75,7 @@ class Watchdog:
 
     def _runner(self):
         """Check for old connections and disconnect."""
-        log_message("Running %s Watchdog", self.name, level=6)
+        _LOGGER.debug("Running %s Watchdog", self.name)
         if self._last_activity_tracker:
             clients_to_disconnect = [
                 client_id
@@ -80,13 +87,15 @@ class Watchdog:
                 )
             ]
             for client_id in clients_to_disconnect:
-                log_message(
+                _LOGGER.info(
                     "WATCHDOG -> Disconnecting %s %s due to inactivity",
                     self.name,
                     client_id,
-                    level=1,
+                    extra=MsgLogLevel.L1,
                 )
-                fire_event(Event(self.name, EventType.REQUEST_DISCONNECT, client_id))
+                self.proxy.events.fire_event(
+                    Event(self.name, EventType.REQUEST_DISCONNECT, client_id)
+                )
                 with contextlib.suppress(KeyError):
                     del self._last_activity_tracker[client_id]
 
@@ -94,4 +103,4 @@ class Watchdog:
         if self._run_watchdog:
             self._schedule_next_run()
 
-        log_message("Finished %s Watchdog run", self.name, level=6)
+        _LOGGER.debug("Finished %s Watchdog run", self.name)
