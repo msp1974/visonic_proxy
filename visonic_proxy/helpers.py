@@ -5,7 +5,6 @@ import logging
 import os
 
 from .const import MESSAGE_LOG_LEVEL
-from .enums import ConnectionName
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,8 +28,3 @@ def log_message(message: str, *args, level: int = 0, log_level=logging.INFO):
             log("[%s:%s]%s %s", file, line_no, " ".ljust(pad), message % args)
         else:
             log(message, *args)
-
-
-def get_connection_id(name: ConnectionName, client_id: str) -> str:
-    """Return connection id."""
-    return f"{name}_{client_id}"
