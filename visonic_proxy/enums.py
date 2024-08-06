@@ -50,3 +50,13 @@ class ConnectionStatus(IntEnum):
     CONNECTING = 0
     CONNECTED = 1
     DISCONNECTING = 2
+
+
+class MsgLogLevel:
+    """Message log level."""
+
+    L1 = {"msglevel": 1}
+    L2 = {"msglevel": 2}
+    L3 = {"msglevel": 3}
+    L4 = {"msglevel": 4}
+    L5 = {"msglevel": 5}

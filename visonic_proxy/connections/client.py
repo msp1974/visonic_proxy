@@ -7,9 +7,10 @@ import logging
 from socket import AF_INET
 import traceback
 
+from visonic_proxy.enums import MsgLogLevel
+
 from ..const import VIS_ACK
 from ..events import Event, EventType
-from ..helpers import log_message
 from ..message import QueuedMessage
 from ..proxy import Proxy
 from .protocol import ConnectionProtocol
@@ -59,11 +60,11 @@ class ClientConnection:
     async def connect(self):
         """Initiate connection to host."""
 
-        log_message(
+        _LOGGER.info(
             "Request connection for %s %s",
             self.name,
             self.parent_connection_id,
-            level=5,
+            extra=MsgLogLevel.L5,
         )
 
         self.connection_in_progress = True
@@ -83,12 +84,12 @@ class ClientConnection:
 
     def connection_made(self, transport: asyncio.Transport):
         """Handle connection made callback."""
-        log_message(
+        _LOGGER.info(
             "Connected to %s server on port %s for %s",
             self.name,
             self.port,
             self.parent_connection_id,
-            level=2,
+            extra=MsgLogLevel.L1,
         )
 
         # Get ref to transport for writing
@@ -128,13 +129,12 @@ class ClientConnection:
     def data_received(self, _: asyncio.Transport, data: bytes):
         """Handle data received callback."""
         # Show divider if level 4 loggin or above
-        log_message("".rjust(60, "-"), level=4)
-        log_message(
+        _LOGGER.info("".rjust(60, "-"), extra=MsgLogLevel.L4)
+        _LOGGER.debug(
             "Received Data: %s %s - %s",
             self.name,
             self.parent_connection_id,
             data,
-            level=6,
         )
 
         self.last_received_message = dt.datetime.now()
@@ -149,16 +149,14 @@ class ClientConnection:
             try:
                 if self.send_non_pl31_messages:
                     self.transport.write(queued_message.message.data)
-                    log_message("Data Sent: %s", queued_message.message.data, level=6)
+                    _LOGGER.debug("Data Sent: %s", queued_message.message.data)
                 else:
                     self.transport.write(queued_message.message.raw_data)
-                    log_message(
-                        "Data Sent: %s", queued_message.message.raw_data, level=6
-                    )
+                    _LOGGER.debug("Data Sent: %s", queued_message.message.raw_data)
 
                 self.last_sent_message = dt.datetime.now()
 
-                log_message(
+                _LOGGER.info(
                     "%s->%s %s - %s %s %s",
                     queued_message.source,
                     self.name,
@@ -166,7 +164,9 @@ class ClientConnection:
                     f"{queued_message.message.msg_id:0>4}",
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
-                    level=3 if queued_message.message.msg_type == VIS_ACK else 2,
+                    extra=MsgLogLevel.L3
+                    if queued_message.message.msg_type == VIS_ACK
+                    else MsgLogLevel.L2,
                 )
 
             except Exception as ex:  # pylint: disable=broad-exception-caught  # noqa: BLE001
@@ -188,11 +188,11 @@ class ClientConnection:
     def disconnected(self, transport: asyncio.Transport):
         """Disconnected callback."""
         self.connected = False
-        log_message(
+        _LOGGER.info(
             "%s %s server has disconnected",
             self.name,
             self.parent_connection_id,
-            level=1,
+            extra=MsgLogLevel.L1,
         )
         if transport:
             transport.close()
@@ -207,11 +207,10 @@ class ClientConnection:
 
     async def shutdown(self):
         """Disconnect from Server."""
-        log_message(
+        _LOGGER.debug(
             "Shutting down connection to %s %s",
             self.name,
             self.parent_connection_id,
-            level=6,
         )
 
         # Unsubscribe listeners

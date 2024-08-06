@@ -16,9 +16,8 @@ import requests
 import urllib3
 
 from ..const import PROXY_MODE, VISONIC_HOST
-from ..enums import ConnectionName
+from ..enums import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
-from ..helpers import log_message
 from ..proxy import Proxy
 
 urllib3.disable_warnings()
@@ -59,10 +58,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001
             post_body = b""
 
-        log_message(
+        _LOGGER.debug(
             "\x1b[1;36mAlarm HTTPS ->\x1b[0m %s",
             post_body.decode().replace("\n", ""),
-            level=6,
         )
 
         self.send_response(200)
@@ -88,7 +86,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                         for command in cmds:
                             if command.get("name") == "connect":
                                 # fire event
-                                log_message("Received web connection request", level=1)
+                                _LOGGER.info(
+                                    "Received web connection request",
+                                    extra=MsgLogLevel.L1,
+                                )
                                 event = Event(
                                     ConnectionName.VISONIC,
                                     EventType.REQUEST_CONNECT,
@@ -112,15 +113,14 @@ class RequestHandler(BaseHTTPRequestHandler):
                     response = {}
 
                 if WebResponseController.request_connect:
-                    log_message("WEBSERVER: Request to connect is set", level=6)
+                    _LOGGER.debug("WEBSERVER: Request to connect is set")
                     resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
                 else:
                     resp = res.content
 
-                log_message(
+                _LOGGER.debug(
                     "\x1b[1;36mVisonic HTTPS ->\x1b[0m %s",
                     resp.decode().replace("\n", ""),
-                    level=6,
                 )
 
                 if not self.wfile.closed:
@@ -148,10 +148,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                     response = json.dumps(resp)
                     bin_resp = bytes(f"{response}\n", "ascii")
 
-                    log_message(
+                    _LOGGER.debug(
                         "\x1b[1;36mCM HTTPS ->\x1b[0m %s",
                         resp,
-                        level=6,
                     )
 
                     self.send_header(
@@ -213,14 +212,13 @@ class Webserver:
                 self.server.socket, server_side=True
             )
 
-            log_message(
+            _LOGGER.info(
                 "Webserver listening on %s port %s",
                 self.host,
                 self.port,
-                level=0,
             )
         except (OSError, Exception) as ex:
-            log_message(
+            _LOGGER.error(
                 "Unable to start webserver. Error is %s", ex, log_level=logging.ERROR
             )
         else:

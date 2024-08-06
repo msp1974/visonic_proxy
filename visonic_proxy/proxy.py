@@ -8,10 +8,10 @@ import datetime as dt
 import logging
 from typing import Any
 
-from visonic_proxy.helpers import log_message
-
 from .enums import ConnectionName, ConnectionPriority, ConnectionStatus
 from .events import Events
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -40,11 +40,16 @@ class Proxy:
 
         self.clients = Clients()
         self.events = Events()
-        self.message_tracker = {}  # TODO: Add message id and last timestamtp here
+        self.message_tracker = MessageTracker()
         self.status = SystemStatus()
 
-        self.last_message_no: int = 0
-        self.last_message_timestamp: dt = dt.datetime.now()
+
+@dataclass
+class MessageTracker:
+    """Holds last message id and timestamp."""
+
+    last_message_no: int = 0
+    last_message_timestamp: dt = dt.datetime.now()
 
     def get_next_message_id(self) -> int:
         """Increment message id and return it."""
@@ -87,10 +92,8 @@ class Clients:
             client_id in self._clients[name]
             and self._clients[name][client_id].status == ConnectionStatus.CONNECTED
         ):
-            log_message(
+            _LOGGER.error(
                 "%s client with id %s is already registered",
-                level=0,
-                log_level=logging.ERROR,
             )
             return
 
@@ -104,12 +107,11 @@ class Clients:
             requires_ack=requires_ack,
             send_non_pl31_messages=send_non_pl31_messages,
         )
-        log_message(
+        _LOGGER.debug(
             "%s %s registered with connection manager as %s",
             name,
             client_id,
             connection_status.name,
-            level=5,
         )
 
     def remove(self, name: ConnectionName, client_id: int):
@@ -119,8 +121,10 @@ class Clients:
         except KeyError:
             pass
         finally:
-            log_message(
-                "%s %s removed from connection manager", name, client_id, level=6
+            _LOGGER.debug(
+                "%s %s removed from connection manager",
+                name,
+                client_id,
             )
 
     def get_connection_priroity(self, name: ConnectionName, client_id: int) -> int:
@@ -176,10 +180,8 @@ class Clients:
             if self._clients[name][client_id]:
                 self._clients[name][client_id] = connection_info
         except KeyError:
-            log_message(
+            _LOGGER.error(
                 "Error updating client connection info.  CLient does not exist.",
-                level=0,
-                log_level=logging.ERROR,
             )
 
     def update_status(
@@ -189,8 +191,6 @@ class Clients:
         try:
             self._clients[name][client_id].status = status
         except KeyError:
-            log_message(
+            _LOGGER.error(
                 "Error updating client status.  No existing client entry.",
-                level=0,
-                log_level=logging.ERROR,
             )

@@ -6,9 +6,8 @@ import contextlib
 import datetime as dt
 import logging
 
-from ..enums import ConnectionName
+from ..enums import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
-from ..helpers import log_message
 from ..proxy import Proxy
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,7 +46,7 @@ class Watchdog:
         ]
 
         self._schedule_next_run()
-        log_message("Started %s Watchdog Timer", self.name, level=1)
+        _LOGGER.info("Started %s Watchdog Timer", self.name, extra=MsgLogLevel.L1)
 
     def _schedule_next_run(self):
         """Schedule next run of watchdog."""
@@ -76,7 +75,7 @@ class Watchdog:
 
     def _runner(self):
         """Check for old connections and disconnect."""
-        log_message("Running %s Watchdog", self.name, level=6)
+        _LOGGER.debug("Running %s Watchdog", self.name)
         if self._last_activity_tracker:
             clients_to_disconnect = [
                 client_id
@@ -88,11 +87,11 @@ class Watchdog:
                 )
             ]
             for client_id in clients_to_disconnect:
-                log_message(
+                _LOGGER.info(
                     "WATCHDOG -> Disconnecting %s %s due to inactivity",
                     self.name,
                     client_id,
-                    level=1,
+                    extra=MsgLogLevel.L1,
                 )
                 self.proxy.events.fire_event(
                     Event(self.name, EventType.REQUEST_DISCONNECT, client_id)
@@ -104,4 +103,4 @@ class Watchdog:
         if self._run_watchdog:
             self._schedule_next_run()
 
-        log_message("Finished %s Watchdog run", self.name, level=6)
+        _LOGGER.debug("Finished %s Watchdog run", self.name)

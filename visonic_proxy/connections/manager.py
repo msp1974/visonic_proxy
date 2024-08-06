@@ -13,10 +13,15 @@ from ..const import (
     VISONIC_HOST,
     VISONIC_RECONNECT_INTERVAL,
 )
-from ..enums import ConnectionName, ConnectionPriority, ConnectionStatus, Mode
+from ..enums import (
+    ConnectionName,
+    ConnectionPriority,
+    ConnectionStatus,
+    Mode,
+    MsgLogLevel,
+)
 from ..events import ALL_CLIENTS, Event, EventType
 from ..flow_manager import FlowManager
-from ..helpers import log_message
 from ..message import QueuedMessage
 from ..proxy import Proxy
 from .client import ClientConnection
@@ -70,7 +75,7 @@ class ConnectionManager:
     async def start(self):
         """Start Connection Manager."""
 
-        log_message("Starting Connection Manager", level=1)
+        _LOGGER.info("Starting Connection Manager")
         self.status = ConnectionCoordinatorStatus.STARTING
 
         # Start flow manager
@@ -102,7 +107,7 @@ class ConnectionManager:
 
         # Start HTTPS webserver
         if not self.webserver_task:
-            log_message("Starting Webserver", level=1)
+            _LOGGER.info("Starting Webserver")
             loop = asyncio.get_running_loop()
             self.webserver = Webserver(self.proxy)
             self.webserver_task = loop.create_task(
@@ -110,12 +115,12 @@ class ConnectionManager:
             )
 
         self.status = ConnectionCoordinatorStatus.RUNNING
-        log_message("Connection Manager started", level=1)
+        _LOGGER.info("Connection Manager started")
 
     async def stop(self):
         """Shutdown all connections and terminate."""
         self.status = ConnectionCoordinatorStatus.CLOSING
-        log_message("Stopping Connection Manager", level=1)
+        _LOGGER.info("Stopping Connection Manager")
 
         # Unsubscribe all events
         if self.unsubscribe_events:
@@ -127,7 +132,7 @@ class ConnectionManager:
 
         # Stop webserver
         if self.webserver_task and not self.webserver_task.done():
-            log_message("Stopping Webserver", level=1)
+            _LOGGER.info("Stopping Webserver")
             try:
                 await self.webserver.stop()
                 self.webserver_task.cancel()
@@ -150,7 +155,7 @@ class ConnectionManager:
             await server.shutdown()
 
         self.status = ConnectionCoordinatorStatus.STOPPED
-        log_message("Connection Manager is stopped", level=1)
+        _LOGGER.info("Connection Manager is stopped")
 
     async def async_start_listener_connections(self):
         """Start connection."""
@@ -199,12 +204,12 @@ class ConnectionManager:
             )
             return
 
-        log_message(
+        _LOGGER.info(
             "Starting %s client connection for %s %s",
             ConnectionName.VISONIC,
             ConnectionName.ALARM,
             client_id,
-            level=2,
+            extra=MsgLogLevel.L1,
         )
 
         client = ClientConnection(
@@ -256,7 +261,7 @@ class ConnectionManager:
                 ConnectionName.VISONIC, event.client_id
             ):
                 # Ensure we have an Alarm connection and not an existing Visonic one that matches
-                log_message("Connecting Visonic Client %s", event.client_id, level=6)
+                _LOGGER.debug("Connecting Visonic Client %s", event.client_id)
                 await self.start_client_connection(event.client_id)
 
     async def set_mode(self, event: Event):
@@ -275,7 +280,7 @@ class ConnectionManager:
         without too much interuption.
         """
         if enable and not self.proxy.status.stealth_mode:
-            log_message("Entering Stealth Mode", level=0)
+            _LOGGER.info("Entering Stealth Mode", extra=MsgLogLevel.L1)
             # Stop any connecting to Visonic
             self.proxy.status.stealth_mode = True
             self.connect_visonic = False
@@ -287,7 +292,7 @@ class ConnectionManager:
                     await self.stop_client_connection(client_id)
 
         elif (not enable) and self.proxy.status.stealth_mode:
-            log_message("Exiting Stealth Mode", level=0)
+            _LOGGER.info("Exiting Stealth Mode", extra=MsgLogLevel.L1)
             self.proxy.status.stealth_mode = False
             if PROXY_MODE:
                 self.connect_visonic = True
@@ -303,7 +308,7 @@ class ConnectionManager:
 
     async def connection_event(self, event: Event):
         """Handle connection event."""
-        log_message("CONNECTION EVENT: %s", event, level=6)
+        _LOGGER.debug("CONNECTION EVENT: %s", event)
 
         # Register connection with flow manager
         connection = event.event_data and event.event_data.get("connection")
@@ -360,7 +365,7 @@ class ConnectionManager:
 
     async def disconnection_event(self, event: Event):
         """Handle connection event."""
-        log_message("Received Disconnection Event - %s", event, level=6)
+        _LOGGER.debug("Received Disconnection Event - %s", event)
 
         # Unregister client connection
         self.proxy.clients.remove(event.name, event.client_id)

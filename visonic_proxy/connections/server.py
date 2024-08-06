@@ -9,9 +9,8 @@ import logging
 from socket import AF_INET
 
 from ..const import KEEPALIVE_TIMER, VIS_ACK
-from ..enums import ConnectionName
+from ..enums import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
-from ..helpers import log_message
 from ..message import QueuedMessage
 from ..proxy import Proxy
 from .protocol import ConnectionProtocol
@@ -110,12 +109,11 @@ class ServerConnection:
                 self.port,
                 family=AF_INET,
             )
-            log_message(
+            _LOGGER.info(
                 "Listening for %s connection on %s port %s",
                 self.name,
                 self.host,
                 self.port,
-                level=1,
             )
 
             # Start watchdog timer
@@ -146,12 +144,12 @@ class ServerConnection:
             client_port, transport, dt.datetime.now()
         )
 
-        log_message(
+        _LOGGER.info(
             "%s client %s connected from %s",
             self.name,
             client_id,
             self.get_client_ip(transport),
-            level=1,
+            extra=MsgLogLevel.L1,
         )
         _LOGGER.debug("Connections: %s", self.clients)
 
@@ -175,7 +173,7 @@ class ServerConnection:
                 self.keep_alive_timer(), name="KeepAlive timer"
             )
 
-            log_message("Started KeepAlive Timer", level=1)
+            _LOGGER.info("Started KeepAlive Timer", extra=MsgLogLevel.L1)
 
     def data_received(self, transport: asyncio.Transport, data: bytes):
         """Handle callback for when data received."""
@@ -183,8 +181,8 @@ class ServerConnection:
         client_id = self.get_client_id(transport)
         # _LOGGER.info("%s %s -> %s", self.name, client_id, data)
 
-        log_message("".rjust(60, "-"), level=4)
-        log_message("Received Data: %s %s - %s", self.name, client_id, data, level=6)
+        _LOGGER.info("".rjust(60, "-"), extra=MsgLogLevel.L4)
+        _LOGGER.debug("Received Data: %s %s - %s", self.name, client_id, data)
 
         # Update client last received
         self.clients[client_id].last_received_message = dt.datetime.now()
@@ -207,14 +205,12 @@ class ServerConnection:
             if client.transport:
                 if self.send_non_pl31_messages:
                     client.transport.write(queued_message.message.data)
-                    log_message("Data Sent: %s", queued_message.message.data, level=6)
+                    _LOGGER.debug("Data Sent: %s", queued_message.message.data)
                 else:
                     client.transport.write(queued_message.message.raw_data)
-                    log_message(
-                        "Data Sent: %s", queued_message.message.raw_data, level=6
-                    )
+                    _LOGGER.debug("Data Sent: %s", queued_message.message.raw_data)
 
-                log_message(
+                _LOGGER.info(
                     "%s->%s %s - %s %s %s",
                     queued_message.source,
                     self.name,
@@ -222,7 +218,9 @@ class ServerConnection:
                     f"{queued_message.message.msg_id:0>4}",
                     queued_message.message.msg_type,
                     queued_message.message.data.hex(" "),
-                    level=3 if queued_message.message.msg_type == VIS_ACK else 2,
+                    extra=MsgLogLevel.L3
+                    if queued_message.message.msg_type == VIS_ACK
+                    else MsgLogLevel.L2,
                 )
 
                 return True
@@ -235,7 +233,9 @@ class ServerConnection:
     def client_disconnected(self, transport: asyncio.Transport):
         """Disconnected callback."""
         client_id = self.get_client_id(transport)
-        log_message("%s client %s disconnected", self.name, client_id, level=1)
+        _LOGGER.info(
+            "%s client %s disconnected", self.name, client_id, extra=MsgLogLevel.L1
+        )
 
         # Remove client id from list of clients
         try:
@@ -250,10 +250,10 @@ class ServerConnection:
         # If has keepalive timer, stop it if no more clients
         if len(self.clients) == 0:
             if self.keep_alive_timer_task and not self.keep_alive_timer_task.done():
-                log_message(
+                _LOGGER.info(
                     "Stopping keepalive timer for %s due to no connections",
                     self.name,
-                    level=1,
+                    extra=MsgLogLevel.L1,
                 )
                 self.keep_alive_timer_task.cancel()
                 self.keep_alive_timer_task = None
@@ -291,7 +291,9 @@ class ServerConnection:
 
         # Stop keep alive timer
         if self.keep_alive_timer_task and not self.keep_alive_timer_task.done():
-            log_message("Stopping keepalive timer for %s", self.name, level=1)
+            _LOGGER.info(
+                "Stopping keepalive timer for %s", self.name, extra=MsgLogLevel.L1
+            )
             self.keep_alive_timer_task.cancel()
 
         # Stop watchdog
@@ -299,7 +301,9 @@ class ServerConnection:
             await self.watchdog.stop()
 
         for client_id in self.clients:
-            log_message("Disconnecting from %s %s", self.name, client_id, level=1)
+            _LOGGER.info(
+                "Disconnecting from %s %s", self.name, client_id, extra=MsgLogLevel.L1
+            )
             self.disconnect_client(client_id)
 
         if self.server:
@@ -323,7 +327,9 @@ class ServerConnection:
                         ).total_seconds()
                         > KEEPALIVE_TIMER
                     ):
-                        log_message("Firing KeepAlive timout event", level=5)
+                        _LOGGER.info(
+                            "Firing KeepAlive timout event", extra=MsgLogLevel.L5
+                        )
                         self.proxy.events.fire_event(
                             Event(self.name, EventType.SEND_KEEPALIVE, client_id)
                         )

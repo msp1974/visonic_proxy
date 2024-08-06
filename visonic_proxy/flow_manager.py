@@ -10,9 +10,8 @@ import re
 import traceback
 
 from .const import ACK_TIMEOUT, ADM_ACK, ADM_CID, NAK, VIS_ACK, VIS_BBA
-from .enums import ConnectionName, ConnectionStatus
+from .enums import ConnectionName, ConnectionStatus, MsgLogLevel
 from .events import ALL_CLIENTS, Event, EventType
-from .helpers import log_message
 from .message import QueuedMessage, QueuedReceivedMessage, RoutableMessage
 from .message_router import MessageRouter
 from .proxy import Proxy
@@ -116,7 +115,7 @@ class FlowManager:
         self.rts.set()
         self.pending_has_connected.set()
 
-        log_message("Flow Manager started", level=0)
+        _LOGGER.info("Flow Manager started")
 
     async def stop(self):
         """Shutdown flow manager."""
@@ -131,7 +130,7 @@ class FlowManager:
         if self.message_receiver_task and not self.message_receiver_task.done():
             self.message_receiver_task.cancel()
 
-        log_message("Flow Manager stopped", level=0)
+        _LOGGER.info("Flow Manager stopped")
 
     def set_panel_data(self, panel_id: str, account_id: str):
         """Set panel data in message builder."""
@@ -148,12 +147,11 @@ class FlowManager:
         self.receive_queue.put_nowait(
             (QID.get_next(), QueuedReceivedMessage(source_name, source_client_id, data))
         )
-        log_message(
+        _LOGGER.debug(
             "Queued Received Data: %s %s %s",
             source_name,
             source_client_id,
             data,
-            level=6,
         )
 
     async def _receive_queue_processor(self):
@@ -166,7 +164,7 @@ class FlowManager:
             client_id = message.source_client_id
             data = message.data
 
-            log_message("Retrieved from Receive Queue: %s", message, level=6)
+            _LOGGER.debug("Retrieved from Receive Queue: %s", message)
 
             connection_info = self.proxy.clients.get_client(source, client_id)
 
@@ -213,14 +211,14 @@ class FlowManager:
             destination = None
             destination_client_id = None
             for decoded_message in decoded_messages:
-                log_message(
+                _LOGGER.info(
                     "REC << %s %s - %s %s %s",
                     source,
                     client_id,
                     f"{decoded_message.msg_id:0>4}",
                     decoded_message.msg_type,
                     decoded_message.data.hex(" "),
-                    level=4,
+                    extra=MsgLogLevel.L4,
                 )
                 if source == ConnectionName.ALARM:
                     # Set panel info
@@ -236,13 +234,14 @@ class FlowManager:
                             VIS_BBA,
                             VIS_ACK,
                         ]:
-                            self.proxy.last_message_no = message_no
-                            self.proxy.last_message_timestamp = timestamp
-                            log_message(
+                            self.proxy.message_tracker.last_message_no = message_no
+                            self.proxy.message_tracker.last_message_timestamp = (
+                                timestamp
+                            )
+                            _LOGGER.debug(
                                 "Tracking Info: msg_id: %s, timestamp: %s",
                                 message_no,
                                 timestamp,
-                                level=6,
                             )
                     except ValueError:
                         _LOGGER.warning(
@@ -301,23 +300,23 @@ class FlowManager:
                         # Assume this is for us if not in Proxy Mode
                         #    decoded_message.msg_id = self.ack_awaiter.msg_id
 
-                        log_message(
+                        _LOGGER.info(
                             "Received awaited ACK for %s %s from %s %s for msg id %s",
                             self.ack_awaiter.desination,
                             self.ack_awaiter.destination_client_id,
                             source,
                             client_id,
                             decoded_message.msg_id,
-                            level=5,
+                            extra=MsgLogLevel.L5,
                         )
                         # If ACK and Waiter out of sync, log message
                         # This is accepted above if 1 out
                         if decoded_message.msg_id != self.ack_awaiter.msg_id:
-                            log_message(
+                            _LOGGER.warning(
                                 "ACK was out of sync with awaiter. ACK: %s, WAITER: %s",
                                 decoded_message.msg_id,
                                 self.ack_awaiter.msg_id,
-                                level=5,
+                                extra=MsgLogLevel.L5,
                             )
                         # Reset awaiting ack
                         self.ack_awaiter = None
@@ -356,11 +355,10 @@ class FlowManager:
     ):
         """Add message to send queue for processing."""
 
-        log_message(
+        _LOGGER.debug(
             "Queuing Message to %s: %s",
             message.destination,
             message,
-            level=6,
         )
 
         # ACKs should always take highest priority
@@ -394,8 +392,7 @@ class FlowManager:
 
             message: QueuedMessage = queue_message[1]
 
-            log_message("Retieved from Send Queue: %s", message, level=6)
-
+            _LOGGER.debug("Retieved from Send Queue: %s", message)
             # A destination client id of 0 is send to first connection
             # get_connection_info will return the first client connection is passed 0 as client_id
             connection_info = self.proxy.clients.get_client(
@@ -443,14 +440,14 @@ class FlowManager:
                         message.source_client_id,
                         msg_id,
                     )
-                    log_message(
+                    _LOGGER.info(
                         "Waiting ACK: From %s %s for %s %s for msg id %s",
                         message.destination,
                         message.destination_client_id,
                         message.source,
                         message.source_client_id,
                         message.message.msg_id,
-                        level=5,
+                        extra=MsgLogLevel.L5,
                     )
                     await self.wait_for_ack(
                         message.destination, message.destination_client_id, msg_id
@@ -474,13 +471,13 @@ class FlowManager:
                         and queued_message.destination != ConnectionName.ALARM_MONITOR
                         and queued_message.message.msg_type == VIS_BBA
                     ):
-                        msg_id = self.proxy.get_next_message_id()
+                        msg_id = self.proxy.message_tracker.get_next_message_id()
                     else:
                         # msgid will be populated if this is an ACK from CM
                         msg_id = queued_message.message.msg_id
 
                     if queued_message.source == ConnectionName.CM:
-                        log_message("Sending : %s", queued_message, level=6)
+                        _LOGGER.debug("Sending : %s", queued_message)
 
                     queued_message.message = MessageBuilder(
                         self.proxy
@@ -537,11 +534,10 @@ class FlowManager:
     async def ack_timeout(self, event: Event):
         """ACK timeout callback."""
 
-        log_message(
+        _LOGGER.warning(
             "ACK Timeout: Waiting for ACK from %s for msg id %s",
             event.name,
             event.event_data.get("msg_id", "UNKOWN"),
-            level=5,
-            log_level=logging.WARNING,
+            extra=MsgLogLevel.L5,
         )
         self.release_send_queue()

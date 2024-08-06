@@ -4,7 +4,7 @@ from enum import StrEnum
 import logging
 
 PROXY_MODE = True
-LOG_LEVEL = logging.INFO
+LOG_LEVEL = logging.DEBUG
 LOG_TO_FILE = True
 LOG_FILES_TO_KEEP = 10
 
@@ -27,7 +27,7 @@ WATHCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill i
 ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
 
 
-ALARM_MONITOR_SENDS_ACKS = True
+ALARM_MONITOR_SENDS_ACKS = False
 ALARM_MONITOR_NEEDS_ACKS = True
 ALARM_MONITOR_SENDS_KEEPALIVES = False
 ACK_B0_03_MESSAGES = False

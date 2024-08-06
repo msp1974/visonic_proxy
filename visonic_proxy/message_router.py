@@ -20,9 +20,8 @@ from .const import (
     VIS_BBA,
     ManagedMessages,
 )
-from .enums import ConnectionName, ManagerStatus, Mode
+from .enums import ConnectionName, ManagerStatus, Mode, MsgLogLevel
 from .events import Event, EventType
-from .helpers import log_message
 from .message import RoutableMessage
 from .message_filter import is_filtered
 
@@ -62,7 +61,7 @@ class MessageRouter:
         self.command_manager.start(self.cb_send_message)
 
         self.status = MessageCoordinatorStatus.RUNNING
-        log_message("Message Router started", level=0)
+        _LOGGER.info("Message Router started")
 
     async def stop(self):
         """Stop message coordinator."""
@@ -75,11 +74,11 @@ class MessageRouter:
             unsub()
 
         self.status = ManagerStatus.STOPPED
-        log_message("Message Router stopped", level=0)
+        _LOGGER.info("Message Router stopped")
 
     async def route_message(self, route_message: RoutableMessage):
         """Route message."""
-        log_message("%s", route_message, level=6)
+        _LOGGER.debug("ROUTE MESSAGE: %s", route_message)
 
         if route_message.message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
             await self.route_ack(route_message)
@@ -205,11 +204,11 @@ class MessageRouter:
             # Do not forward to Alarm, but send ACK back to Visonic and then request
             # a disconnect for the Visonic connection.
 
-            log_message(
+            _LOGGER.info(
                 "%s %s requested to disconnect",
                 message.source,
                 message.source_client_id,
-                level=1,
+                extra=MsgLogLevel.L1,
             )
             await self.command_manager.send_ack_message(message)
 
@@ -281,7 +280,7 @@ class MessageRouter:
 
         # Filter messages from being sent to Alarm
         if is_filtered(message.message.data):
-            log_message("Not sending message due to filter", level=2)
+            _LOGGER.info("Not sending message due to filter", extra=MsgLogLevel.L2)
             if ALARM_MONITOR_NEEDS_ACKS:
                 await self.command_manager.send_ack_message(message)
             return
@@ -311,14 +310,13 @@ class MessageRouter:
         ):
             requires_ack = False
 
-        log_message(
+        _LOGGER.debug(
             "Forwading Message: %s -> %s %s %s - %s",
             message.source,
             destination,
             message.source_client_id,
             message.message.msg_id,
             message.message.data.hex(" "),
-            level=6,
         )
 
         await self.cb_send_message(

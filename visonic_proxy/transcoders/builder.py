@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 import logging
 
-from visonic_proxy.helpers import log_message
+from visonic_proxy.enums import MsgLogLevel
 from visonic_proxy.proxy import Proxy
 
 from ..const import VIS_ACK, VIS_BBA, ManagedMessages
@@ -94,7 +94,9 @@ class MessageBuilder:
         """
         msg_type = VIS_BBA
 
-        log_message("Message Builder Received - %s", msg.hex(" "), level=5)
+        _LOGGER.info(
+            "Message Builder Received - %s", msg.hex(" "), extra=MsgLogLevel.L5
+        )
 
         if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
             if msg[1:2] == b"\x02":
@@ -119,7 +121,9 @@ class MessageBuilder:
         data = bytes.fromhex(message)
         message_class = data[1:2].hex()
 
-        log_message("Message Builder Returned: %s, %s", message, data, level=5)
+        _LOGGER.info(
+            "Message Builder Returned: %s, %s", message, data, extra=MsgLogLevel.L5
+        )
 
         return NonPowerLink31Message(
             msg_type=msg_type, msg_id=0, message_class=message_class, data=data
@@ -154,7 +158,7 @@ class MessageBuilder:
         """
         msg = "b0 01"
 
-        func = f"_build_{type}_{command}_request"
+        func = f"_build_b0_{command}_request"
         if hasattr(self, func):
             msg += f" {getattr(self, func)(params)}"
         else:

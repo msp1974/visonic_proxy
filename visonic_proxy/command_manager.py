@@ -1,15 +1,17 @@
 """Handle commands."""
 
 from collections.abc import Callable
+import logging
 
 from events import ALL_CLIENTS, Event, EventType
 
 from .const import SEND_E0_MESSAGES
-from .enums import ConnectionName, Mode
-from .helpers import log_message
+from .enums import ConnectionName, Mode, MsgLogLevel
 from .message import RoutableMessage
 from .proxy import Proxy
 from .transcoders.builder import MessageBuilder
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class CommandManager:
@@ -35,7 +37,7 @@ class CommandManager:
                 ),
             ]
         )
-        log_message("Command Manager started", level=0)
+        _LOGGER.info("Command Manager started")
 
     async def stop(self):
         """Stop command manager."""
@@ -43,11 +45,16 @@ class CommandManager:
         if self._unsubscribe_listeners:
             for unsub in self._unsubscribe_listeners:
                 unsub()
-        log_message("Command Manager stopped", level=0)
+        _LOGGER.info("Command Manager stopped")
 
     async def send_keepalive(self, event: Event):
         """Handle sending keepalive."""
-        log_message("Sending KeepAlive to %s %s", event.name, event.client_id, level=5)
+        _LOGGER.info(
+            "Sending KeepAlive to %s %s",
+            event.name,
+            event.client_id,
+            extra=MsgLogLevel.L5,
+        )
         msg = self._message_builer.build_keep_alive_message()
 
         await self.cb_send_message(
@@ -62,8 +69,11 @@ class CommandManager:
 
     async def send_ack_message(self, message: RoutableMessage):
         """Send ACK message."""
-        log_message(
-            "Sending ACK to %s %s", message.source, message.source_client_id, level=5
+        _LOGGER.info(
+            "Sending ACK to %s %s",
+            message.source,
+            message.source_client_id,
+            extra=MsgLogLevel.L5,
         )
         msg = self._message_builer.build_ack_message(
             message.message.msg_id, not self.proxy.status.download_mode
@@ -82,7 +92,7 @@ class CommandManager:
 
     async def send_init_message(self):
         """Send init message on Visonic connection."""
-        log_message("Sending INIT to %s", ConnectionName.ALARM, level=5)
+        _LOGGER.info("Sending INIT to %s", ConnectionName.ALARM, extra=MsgLogLevel.L5)
         msg = self._message_builer.message_preprocessor(
             bytes.fromhex("b0 17 51 0f"),
         )
@@ -104,7 +114,11 @@ class CommandManager:
         Used to allow management of this Connection Manager from the Monitor Connection
         """
         if SEND_E0_MESSAGES:
-            log_message("Sending STATUS to %s", ConnectionName.ALARM_MONITOR, level=5)
+            _LOGGER.info(
+                "Sending STATUS to %s",
+                ConnectionName.ALARM_MONITOR,
+                extra=MsgLogLevel.L5,
+            )
             status_msg = [
                 "e0",
                 f"{self.proxy.clients.count(ConnectionName.ALARM):02x}",

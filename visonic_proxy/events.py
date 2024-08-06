@@ -10,7 +10,6 @@ import traceback
 from typing import Callable
 
 from visonic_proxy.enums import ConnectionName
-from visonic_proxy.helpers import log_message
 
 ALL_CLIENTS = "all"
 
@@ -90,10 +89,8 @@ class Events:
             if event_id in self.listeners:
                 try:
                     for callback in self.listeners[event_id]:
-                        log_message(
-                            "Firing Event: %s - %s", event_id, callback, level=6
-                        )
-                        log_message("Event: %s", event, level=6)
+                        _LOGGER.debug("Firing Event: %s - %s", event_id, callback)
+                        _LOGGER.debug("Event: %s", event)
                         if inspect.iscoroutinefunction(callback):
                             await callback(event)
                             await asyncio.gather()
