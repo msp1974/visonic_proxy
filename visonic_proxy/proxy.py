@@ -151,8 +151,9 @@ class Clients:
     def get_first_client(self, name: ConnectionName) -> ConnectionInfo | None:
         """Get connection info for first client in connection."""
         try:
-            first_client = min(list(self._clients[name].keys()))
-            return self._clients[name][first_client]
+            if client_ids := list(self._clients[name].keys()):
+                first_client = min(client_ids)
+                return self._clients[name][first_client]
         except KeyError:
             return None
 
