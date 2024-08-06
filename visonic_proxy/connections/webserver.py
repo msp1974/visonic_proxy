@@ -94,7 +94,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                                     EventType.REQUEST_CONNECT,
                                 )
                                 future = asyncio.run_coroutine_threadsafe(
-                                    WebResponseController.proxy.events._async_fire_event(
+                                    WebResponseController.proxy.events.async_fire_event(
                                         event
                                     ),
                                     WebResponseController.loop,
