@@ -248,13 +248,14 @@ class ConnectionManager:
         # If web request we wont get a client_id.  Get client id from first alarm client
         if not self.proxy.status.stealth_mode:
             if not event.client_id:
-                event.client_id = self.servers[
+                event.client_id = self.proxy.clients.get_first_client(
                     ConnectionName.ALARM
-                ].get_first_client_id()
+                ).id
 
-            if not self.proxy.clients.get_client(
+            if event.client_id and not self.proxy.clients.get_client(
                 ConnectionName.VISONIC, event.client_id
             ):
+                # Ensure we have an Alarm connection and not an existing Visonic one that matches
                 log_message("Connecting Visonic Client %s", event.client_id, level=6)
                 await self.start_client_connection(event.client_id)
 
