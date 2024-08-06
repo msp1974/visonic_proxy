@@ -8,13 +8,12 @@ import itertools
 import logging
 from socket import AF_INET
 
-from visonic_proxy.proxy import Proxy
-
 from ..const import KEEPALIVE_TIMER, VIS_ACK
 from ..enums import ConnectionName
 from ..events import Event, EventType
 from ..helpers import log_message
 from ..message import QueuedMessage
+from ..proxy import Proxy
 from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
 
@@ -171,8 +170,8 @@ class ServerConnection:
 
         # If needs keepalive timer, start it
         if self.run_keepalive and not self.keep_alive_timer_task:
-            loop = asyncio.get_running_loop()
-            self.keep_alive_timer_task = loop.create_task(
+            # loop = asyncio.get_running_loop()
+            self.keep_alive_timer_task = asyncio.create_task(
                 self.keep_alive_timer(), name="KeepAlive timer"
             )
 
