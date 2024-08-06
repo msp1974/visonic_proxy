@@ -113,7 +113,7 @@ class CommandManager:
 
         Used to allow management of this Connection Manager from the Monitor Connection
         """
-        if SEND_E0_MESSAGES:
+        if SEND_E0_MESSAGES and self.proxy.clients.count(ConnectionName.ALARM_MONITOR):
             _LOGGER.info(
                 "Sending STATUS to %s",
                 ConnectionName.ALARM_MONITOR,
