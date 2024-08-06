@@ -80,7 +80,6 @@ class Clients:
         send_non_pl31_messages: bool = False,
     ):
         """Add client to list of connected clients."""
-        # TODO: Add other elements of connection info to add method
         if name not in self._clients:
             # No exising client of name registered - create entry
             self._clients[name] = {}
