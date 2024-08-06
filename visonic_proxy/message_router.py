@@ -15,6 +15,7 @@ from .const import (
     ALARM_MONITOR_NEEDS_ACKS,
     ALARM_MONITOR_SENDS_ACKS,
     NAK,
+    NO_WAIT_FOR_ACK_MESSAGES,
     VIS_ACK,
     VIS_BBA,
     ManagedMessages,
@@ -301,6 +302,15 @@ class MessageRouter:
         """
         message.destination = destination
         message.destination_client_id = destination_client_id
+
+        # Set some overides here for known messages that do not get ACKd
+        if (
+            message.destination
+            == (ConnectionName.ALARM_MONITOR and not ALARM_MONITOR_SENDS_ACKS)
+            or message.message.data.hex(" ") in NO_WAIT_FOR_ACK_MESSAGES
+        ):
+            requires_ack = False
+
         log_message(
             "Forwading Message: %s -> %s %s %s - %s",
             message.source,
