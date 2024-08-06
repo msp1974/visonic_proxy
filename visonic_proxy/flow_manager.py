@@ -9,16 +9,7 @@ import logging
 import re
 import traceback
 
-from .const import (
-    ACK_TIMEOUT,
-    ADM_ACK,
-    ADM_CID,
-    ALARM_MONITOR_SENDS_ACKS,
-    NAK,
-    NO_WAIT_FOR_ACK_MESSAGES,
-    VIS_ACK,
-    VIS_BBA,
-)
+from .const import ACK_TIMEOUT, ADM_ACK, ADM_CID, NAK, VIS_ACK, VIS_BBA
 from .enums import ConnectionName, ConnectionStatus
 from .events import ALL_CLIENTS, Event, EventType
 from .helpers import log_message
@@ -144,7 +135,6 @@ class FlowManager:
 
     def set_panel_data(self, panel_id: str, account_id: str):
         """Set panel data in message builder."""
-        # TODO: Put this in self.proxy
         if not self.proxy.panel_id:
             self.proxy.panel_id = panel_id
         if not self.proxy.account_id:
@@ -375,7 +365,6 @@ class FlowManager:
 
         # ACKs should always take highest priority
         # Then in source order
-        # TODO: Get this from slef.proxy.clients
         if message.message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
             priority = 0
         else:
@@ -430,15 +419,6 @@ class FlowManager:
                 await self.pending_has_connected.wait()
 
                 msg_id = await self._send_message(message)
-
-                # TODO: Move this decision into the router.py
-                # Set some overides here for known messages that do not get ACKd
-                if (
-                    message.destination
-                    == (ConnectionName.ALARM_MONITOR and not ALARM_MONITOR_SENDS_ACKS)
-                    or message.message.data.hex(" ") in NO_WAIT_FOR_ACK_MESSAGES
-                ):
-                    message.requires_ack = False
 
                 # Send message to listeners
                 self.proxy.events.fire_event(
