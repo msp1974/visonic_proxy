@@ -26,7 +26,10 @@ class MessageLevelFilter(logging.Filter):
     def filter(self, record):
         """Apply filter."""
 
-        if record.__dict__.get("msglevel", 0) <= MESSAGE_LOG_LEVEL:
+        if (
+            record.__dict__.get("msglevel", 0) <= MESSAGE_LOG_LEVEL
+            or record.levelno == logging.DEBUG
+        ):
             return True
         return False
 
@@ -79,19 +82,33 @@ logging.basicConfig(
 )
 
 
-if __name__ == "__main__":
-    # start a new log on each restart
-    if LOG_TO_FILE:
-        f_handler.doRollover()
+def validate_certs():
+    """Validate certificate files."""
+    if os.path.isfile("./connections/certs/cert.pem") and os.path.isfile(
+        "./connections/certs/private.key"
+    ):
+        return True
+    return False
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    proxy_server = VisonicProxy(loop)
-    task = loop.create_task(proxy_server.start(), name="ProxyRunner")
-    try:
-        loop.run_until_complete(task)
-    except KeyboardInterrupt:
-        _LOGGER.info("Keyboard interrupted. Exit.")
-        task.cancel()
-        loop.run_until_complete(proxy_server.stop())
-    loop.close()
+
+if __name__ == "__main__":
+    if validate_certs():
+        # start a new log on each restart
+        if LOG_TO_FILE:
+            f_handler.doRollover()
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        proxy_server = VisonicProxy(loop)
+        task = loop.create_task(proxy_server.start(), name="ProxyRunner")
+        try:
+            loop.run_until_complete(task)
+        except KeyboardInterrupt:
+            _LOGGER.info("Keyboard interrupted. Exit.")
+            task.cancel()
+            loop.run_until_complete(proxy_server.stop())
+        loop.close()
+    else:
+        _LOGGER.error(
+            "Unable to find certificate files.  Please generate these with create_certs.sh"
+        )
