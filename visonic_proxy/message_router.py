@@ -18,9 +18,8 @@ from .const import (
     NO_WAIT_FOR_ACK_MESSAGES,
     VIS_ACK,
     VIS_BBA,
-    ManagedMessages,
 )
-from .enums import ConnectionName, ManagerStatus, Mode, MsgLogLevel
+from .enums import ConnectionName, ManagedMessages, ManagerStatus, Mode, MsgLogLevel
 from .events import Event, EventType
 from .message import RoutableMessage
 from .message_filter import is_filtered

@@ -6,8 +6,9 @@ import logging
 from visonic_proxy.enums import MsgLogLevel
 from visonic_proxy.proxy import Proxy
 
-from ..const import VIS_ACK, VIS_BBA, ManagedMessages
+from ..const import VIS_ACK, VIS_BBA
 from ..crc16 import Crc16Arc
+from ..enums import ManagedMessages
 from .pl31_decoder import PowerLink31Message
 
 _LOGGER = logging.getLogger(__name__)
@@ -121,9 +122,7 @@ class MessageBuilder:
         data = bytes.fromhex(message)
         message_class = data[1:2].hex()
 
-        _LOGGER.info(
-            "Message Builder Returned: %s, %s", message, data, extra=MsgLogLevel.L5
-        )
+        _LOGGER.info("Message Builder Returned: %s, %s", message, extra=MsgLogLevel.L5)
 
         return NonPowerLink31Message(
             msg_type=msg_type, msg_id=0, message_class=message_class, data=data
