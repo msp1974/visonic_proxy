@@ -11,7 +11,7 @@ LOG_FILES_TO_KEEP = 10
 # 3 same as 2 plus sent ACKs
 # 4 same as 3 plus received messages
 # 5 same as 4 plus ack waiting messages and builder messages
-MESSAGE_LOG_LEVEL = 5
+MESSAGE_LOG_LEVEL = 2
 
 
 class Config:
