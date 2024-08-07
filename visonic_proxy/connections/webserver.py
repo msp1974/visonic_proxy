@@ -10,7 +10,6 @@ import logging
 import os
 from ssl import PROTOCOL_TLS_SERVER, SSLContext
 import time
-import traceback
 
 import requests
 import urllib3
@@ -94,20 +93,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                                     ConnectionName.VISONIC,
                                     EventType.REQUEST_CONNECT,
                                 )
-                                future = asyncio.run_coroutine_threadsafe(
-                                    WebResponseController.proxy.events.async_fire_event(
-                                        event
-                                    ),
-                                    WebResponseController.loop,
-                                )
-                                # Wait for the result with an optional timeout argument
-                                try:
-                                    assert future.result(5)
-                                except (AssertionError, TimeoutError):
-                                    _LOGGER.error(
-                                        "Webserver failed to fire connect request event"
-                                    )
-                                    _LOGGER.error(traceback.format_exc())
+                                WebResponseController.proxy.events.fire_event(event)
                 except requests.exceptions.JSONDecodeError:
                     _LOGGER.info("cannot decode response")
                     response = {}
