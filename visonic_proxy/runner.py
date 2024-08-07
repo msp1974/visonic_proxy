@@ -18,7 +18,7 @@ class VisonicProxy:
         """Initialise."""
         self.loop = loop
         self.connection_manager = None
-        self.proxy = Proxy()
+        self.proxy = Proxy(self.loop)
         self.status: ManagerStatus
         self._task: asyncio.Task
 
