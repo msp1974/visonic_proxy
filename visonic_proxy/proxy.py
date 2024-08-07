@@ -3,6 +3,7 @@
 This is passed to all classes
 """
 
+import asyncio
 from dataclasses import dataclass
 import datetime as dt
 import logging
@@ -32,14 +33,15 @@ class ConnectionInfo:
 class Proxy:
     """Proxy object."""
 
-    def __init__(self):
+    def __init__(self, loop: asyncio.AbstractEventLoop):
         """Initialise."""
 
+        self.loop = loop
         self.panel_id: str = None
         self.account_id: str = None
 
         self.clients = Clients()
-        self.events = Events()
+        self.events = Events(self.loop)
         self.message_tracker = MessageTracker()
         self.status = SystemStatus()
 
