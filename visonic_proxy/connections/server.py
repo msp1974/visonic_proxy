@@ -97,8 +97,7 @@ class ServerConnection:
     async def start_listening(self):
         """Start server to allow Alarm to connect."""
         try:
-            loop = asyncio.get_running_loop()
-            self.server = await loop.create_server(
+            self.server = await self.proxy.loop.create_server(
                 lambda: ConnectionProtocol(
                     self.name,
                     self.client_connected,
@@ -168,8 +167,7 @@ class ServerConnection:
 
         # If needs keepalive timer, start it
         if self.run_keepalive and not self.keep_alive_timer_task:
-            # loop = asyncio.get_running_loop()
-            self.keep_alive_timer_task = asyncio.create_task(
+            self.keep_alive_timer_task = self.proxy.loop.create_task(
                 self.keep_alive_timer(), name="KeepAlive timer"
             )
 

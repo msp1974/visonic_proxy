@@ -109,9 +109,8 @@ class ConnectionManager:
         # Start HTTPS webserver
         if not self.webserver_task:
             _LOGGER.info("Starting Webserver")
-            loop = asyncio.get_running_loop()
             self.webserver = Webserver(self.proxy)
-            self.webserver_task = loop.create_task(
+            self.webserver_task = self.proxy.loop.create_task(
                 self.webserver.start(), name="Webserver"
             )
 

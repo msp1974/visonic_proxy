@@ -99,7 +99,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                     response = {}
 
                 if WebResponseController.request_connect:
-                    _LOGGER.debug("WEBSERVER: Request to connect is set")
+                    _LOGGER.info(
+                        "Webserver sent request to connect", extra=MsgLogLevel.L1
+                    )
                     resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
                 else:
                     resp = res.content
@@ -213,8 +215,7 @@ class Webserver:
 
     async def start(self):
         """Start webserver."""
-        evloop = asyncio.get_running_loop()
-        await evloop.run_in_executor(None, self._webserver, evloop)
+        await self.proxy.loop.run_in_executor(None, self._webserver, self.proxy.loop)
         _LOGGER.info("Webserver stopped")
 
     async def stop(self):

@@ -112,11 +112,10 @@ class FlowManager:
         ]
 
         # Start message queue processors
-        loop = asyncio.get_running_loop()
-        self.message_receiver_task = loop.create_task(
+        self.message_receiver_task = self.proxy.loop.create_task(
             self._receive_queue_processor(), name="Flow Manager Receive Queue Processor"
         )
-        self.message_sender_task = loop.create_task(
+        self.message_sender_task = self.proxy.loop.create_task(
             self._send_queue_processor(), name="Flow Manager Send Queue Processor"
         )
 

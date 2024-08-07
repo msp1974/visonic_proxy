@@ -69,8 +69,7 @@ class ClientConnection:
 
         self.connection_in_progress = True
 
-        loop = asyncio.get_running_loop()
-        self.transport, self.protocol = await loop.create_connection(
+        self.transport, self.protocol = await self.proxy.loop.create_connection(
             lambda: ConnectionProtocol(
                 self.name,
                 self.connection_made,
