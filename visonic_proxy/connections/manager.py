@@ -10,6 +10,7 @@ from ..const import (
     MESSAGE_PORT,
     PROXY_MODE,
     SEND_E0_MESSAGES,
+    STEALTH_MODE_TIMEOUT,
     VISONIC_HOST,
     VISONIC_RECONNECT_INTERVAL,
 )
@@ -273,7 +274,17 @@ class ConnectionManager:
         setting is the data value
         """
         if Mode.STEALTH in event.event_data:
+            # Log timeout message if exit caused by timeout timer
+            if event.event_data.get("timeout") and self.proxy.status.stealth_mode:
+                _LOGGER.info("Timeout in Stealth Mode", extra=MsgLogLevel.L1)
+
             await self.set_stealth_mode(event.event_data[Mode.STEALTH])
+
+            if event.event_data[Mode.STEALTH]:
+                # Set timeout to exit stealth mode if in place for more than STEALTH_MODE_TIMEOUT seconds
+                event.event_data[Mode.STEALTH] = False
+                event.event_data["timeout"] = True
+                self.proxy.events.fire_event_later(STEALTH_MODE_TIMEOUT, event)
 
     async def set_stealth_mode(self, enable: bool = False):
         """Disconnect Visonic and don't let reconnect for 5 mins.
@@ -294,6 +305,7 @@ class ConnectionManager:
                     await self.stop_client_connection(client_id)
 
         elif (not enable) and self.proxy.status.stealth_mode:
+            # If cause by timeout
             _LOGGER.info("Exiting Stealth Mode", extra=MsgLogLevel.L1)
             self.proxy.status.stealth_mode = False
             if PROXY_MODE:

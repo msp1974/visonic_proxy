@@ -24,6 +24,7 @@ KEEPALIVE_TIMER = 30  # Send Keepalive if no messages in 30 seconds
 WATHCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill it.
 ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
 
+STEALTH_MODE_TIMEOUT = 30  # Max time to be in Stealth mode before exiting
 
 ALARM_MONITOR_SENDS_ACKS = True
 ALARM_MONITOR_NEEDS_ACKS = True
