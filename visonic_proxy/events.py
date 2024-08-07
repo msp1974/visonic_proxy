@@ -46,8 +46,9 @@ class Event:
 class Events:
     """Class to manage events."""
 
-    def __init__(self):
+    def __init__(self, loop: asyncio.AbstractEventLoop):
         """Initialise."""
+        self._loop = loop
         self.listeners: dict[str, list[Callable]] = {}
 
     def subscribe(
@@ -102,14 +103,9 @@ class Events:
                     return False
         return True
 
-    async def async_fire_event(self, event: Event):
-        """Async fire event."""
-        await self._async_fire_event(event)
-
     def fire_event(self, event: Event):
         """Notify event to all listeners."""
-        # loop = asyncio.get_event_loop()
-        asyncio.create_task(  # noqa: RUF006
+        self._loop.create_task(  # noqa: RUF006
             self._async_fire_event(event), name=f"Fire Event - {event.event_type}"
         )
         return True
