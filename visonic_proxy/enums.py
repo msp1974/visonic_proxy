@@ -76,3 +76,15 @@ class MsgLogLevel:
     L3 = {"msglevel": 3}
     L4 = {"msglevel": 4}
     L5 = {"msglevel": 5}
+
+
+class Colour:
+    """Logging colours."""
+
+    green = "\x1b[1;32m"
+    blue = "\x1b[1;36m"
+    grey = "\x1b[1;38m"
+    yellow = "\x1b[1;33m"
+    red = "\x1b[1;31m"
+    purple = "\x1b[1;35m"
+    reset = "\x1b[0m"

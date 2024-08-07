@@ -3,9 +3,8 @@
 import asyncio
 import logging
 
-from visonic_proxy.const import MESSAGE_LOG_LEVEL, Config
-
 from .connections.manager import ConnectionManager
+from .const import MESSAGE_LOG_LEVEL, Config
 from .enums import ConnectionName, ManagerStatus, MsgLogLevel
 from .message_router import MessageCoordinatorStatus
 from .proxy import Proxy

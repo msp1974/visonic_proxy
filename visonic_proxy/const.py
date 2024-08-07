@@ -1,6 +1,9 @@
 """Constants."""
 
+from collections import namedtuple
 import logging
+
+from visonic_proxy.enums import Colour, ConnectionName
 
 LOG_LEVEL = logging.INFO
 LOG_TO_FILE = True
@@ -11,7 +14,20 @@ LOG_FILES_TO_KEEP = 10
 # 3 same as 2 plus sent ACKs
 # 4 same as 3 plus received messages
 # 5 same as 4 plus ack waiting messages and builder messages
-MESSAGE_LOG_LEVEL = 2
+MESSAGE_LOG_LEVEL = 3
+
+# prefix and siffix filters are OR'd
+KeywordColour = namedtuple(
+    "KeywordColour", "keyword prefix_filter suffix_filter colour"
+)
+
+KEYWORD_COLORS = [
+    # Alarm
+    KeywordColour(ConnectionName.ALARM, ["->", "<< "], ["->"], Colour.green),
+    KeywordColour(ConnectionName.ALARM_MONITOR, ["->", "<< "], ["->"], Colour.purple),
+    KeywordColour(ConnectionName.VISONIC, ["->", "<< "], ["->"], Colour.yellow),
+    KeywordColour(ConnectionName.CM, ["->", "<< "], ["->"], Colour.blue),
+]
 
 
 class Config:
@@ -24,9 +40,9 @@ class Config:
     ALARM_MONITOR_PORT = 5002
 
     VISONIC_RECONNECT_INTERVAL = 10  # Freq CM will reconnect Visonic after disconnect
-    KEEPALIVE_TIMER = 30  # Send Keepalive if no messages in 30 seconds
+    KEEPALIVE_TIMER = 32  # Send Keepalive if no messages in 30 seconds
     WATHCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill it.
-    ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
+    ACK_TIMEOUT = 3  # How long to wait for ACK before continuing
 
     STEALTH_MODE_TIMEOUT = 30  # Max time to be in Stealth mode before exiting
 
