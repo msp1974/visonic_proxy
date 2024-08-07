@@ -2,7 +2,7 @@
 
 import logging
 
-LOG_LEVEL = logging.DEBUG
+LOG_LEVEL = logging.INFO
 LOG_TO_FILE = True
 LOG_FILES_TO_KEEP = 10
 
