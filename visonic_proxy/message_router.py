@@ -7,18 +7,7 @@ import logging
 from visonic_proxy.proxy import Proxy
 
 from .command_manager import CommandManager
-from .const import (
-    ACK_B0_03_MESSAGES,
-    ACTION_COMMAND,
-    ADM_ACK,
-    ADM_CID,
-    ALARM_MONITOR_NEEDS_ACKS,
-    ALARM_MONITOR_SENDS_ACKS,
-    NAK,
-    NO_WAIT_FOR_ACK_MESSAGES,
-    VIS_ACK,
-    VIS_BBA,
-)
+from .const import ADM_ACK, ADM_CID, NAK, VIS_ACK, VIS_BBA, Config
 from .enums import ConnectionName, ManagedMessages, ManagerStatus, Mode, MsgLogLevel
 from .events import Event, EventType
 from .message import RoutableMessage
@@ -153,7 +142,7 @@ class MessageRouter:
                 and (
                     self.proxy.clients.count(ConnectionName.ALARM_MONITOR)
                     == 0  # No monitor clients
-                    or not ALARM_MONITOR_SENDS_ACKS  # Monitor connected but it doesn't send ACKs
+                    or not Config.ALARM_MONITOR_SENDS_ACKS  # Monitor connected but it doesn't send ACKs
                 )
             ):
                 await self.command_manager.send_ack_message(message)
@@ -173,7 +162,7 @@ class MessageRouter:
 
             if (
                 self.proxy.status.disconnected_mode
-                and ACK_B0_03_MESSAGES
+                and Config.ACK_B0_03_MESSAGES
                 and message.message.message_class == "b0"
             ):
                 await self.command_manager.send_ack_message(message)
@@ -184,7 +173,7 @@ class MessageRouter:
                 message.message.message_class == "b0"
                 or message.message.data
                 == bytes.fromhex(ManagedMessages.OUT_OF_DOWNLOAD_MODE)
-                or not ALARM_MONITOR_SENDS_ACKS
+                or not Config.ALARM_MONITOR_SENDS_ACKS
             ):
                 requires_ack = False
 
@@ -243,7 +232,7 @@ class MessageRouter:
         Will receive NonPowerLink31Message in event_data
         """
         # Respond to command requests
-        if message.message.message_class == ACTION_COMMAND.lower():
+        if message.message.message_class == Config.ACTION_COMMAND.lower():
             await self.command_manager.do_action_command(message)
             return
 
@@ -280,7 +269,7 @@ class MessageRouter:
         # Filter messages from being sent to Alarm
         if is_filtered(message.message.data):
             _LOGGER.info("Not sending message due to filter", extra=MsgLogLevel.L2)
-            if ALARM_MONITOR_NEEDS_ACKS:
+            if Config.ALARM_MONITOR_NEEDS_ACKS:
                 await self.command_manager.send_ack_message(message)
             return
 
@@ -304,8 +293,8 @@ class MessageRouter:
         # Set some overides here for known messages that do not get ACKd
         if (
             message.destination
-            == (ConnectionName.ALARM_MONITOR and not ALARM_MONITOR_SENDS_ACKS)
-            or message.message.data.hex(" ") in NO_WAIT_FOR_ACK_MESSAGES
+            == (ConnectionName.ALARM_MONITOR and not Config.ALARM_MONITOR_SENDS_ACKS)
+            or message.message.data.hex(" ") in Config.NO_WAIT_FOR_ACK_MESSAGES
         ):
             requires_ack = False
 

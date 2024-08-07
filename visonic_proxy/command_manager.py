@@ -5,7 +5,7 @@ import logging
 
 from events import ALL_CLIENTS, Event, EventType
 
-from .const import SEND_E0_MESSAGES
+from .const import Config
 from .enums import ConnectionName, Mode, MsgLogLevel
 from .message import RoutableMessage
 from .proxy import Proxy
@@ -113,7 +113,9 @@ class CommandManager:
 
         Used to allow management of this Connection Manager from the Monitor Connection
         """
-        if SEND_E0_MESSAGES and self.proxy.clients.count(ConnectionName.ALARM_MONITOR):
+        if Config.SEND_E0_MESSAGES and self.proxy.clients.count(
+            ConnectionName.ALARM_MONITOR
+        ):
             _LOGGER.info(
                 "Sending STATUS to %s",
                 ConnectionName.ALARM_MONITOR,

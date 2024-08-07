@@ -14,7 +14,7 @@ import time
 import requests
 import urllib3
 
-from ..const import PROXY_MODE, VISONIC_HOST
+from ..const import Config
 from ..enums import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
@@ -64,14 +64,14 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
 
-        if PROXY_MODE:
+        if Config.PROXY_MODE:
             try:
                 headers = {}
                 headers["Content-Type"] = "application/x-www-form-urlencoded"
                 headers["Connection"] = "keep-alive"
                 s = requests.Session()
                 res = s.post(
-                    f"https://{VISONIC_HOST}:8443{self.path}",
+                    f"https://{Config.VISONIC_HOST}:8443{self.path}",
                     headers=headers,
                     data=post_body,
                     verify=False,

@@ -8,7 +8,7 @@ import itertools
 import logging
 from socket import AF_INET
 
-from ..const import KEEPALIVE_TIMER, VIS_ACK
+from ..const import VIS_ACK, Config
 from ..enums import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
@@ -323,7 +323,7 @@ class ServerConnection:
                         and (
                             dt.datetime.now() - client.last_received_message
                         ).total_seconds()
-                        > KEEPALIVE_TIMER
+                        > Config.KEEPALIVE_TIMER
                     ):
                         _LOGGER.debug("Firing KeepAlive timeout event")
                         self.proxy.events.fire_event(

@@ -5,16 +5,7 @@ from collections.abc import Callable
 from enum import StrEnum
 import logging
 
-from ..const import (
-    ALARM_MONITOR_PORT,
-    ALARM_MONITOR_SENDS_KEEPALIVES,
-    MESSAGE_PORT,
-    PROXY_MODE,
-    SEND_E0_MESSAGES,
-    STEALTH_MODE_TIMEOUT,
-    VISONIC_HOST,
-    VISONIC_RECONNECT_INTERVAL,
-)
+from ..const import Config
 from ..enums import (
     ConnectionName,
     ConnectionPriority,
@@ -61,12 +52,12 @@ class ConnectionManager:
         self.unsubscribe_events: list[Callable] = []
 
         self.initial_startup: bool = True
-        self.connect_visonic: bool = PROXY_MODE
+        self.connect_visonic: bool = Config.PROXY_MODE
 
     @property
     def is_disconnected_mode(self):
         """Return if no clients connected."""
-        if self.initial_startup and PROXY_MODE:
+        if self.initial_startup and Config.PROXY_MODE:
             return False
         return self.proxy.status.disconnected_mode
 
@@ -174,9 +165,9 @@ class ConnectionManager:
             proxy=self.proxy,
             name=ConnectionName.ALARM,
             host="0.0.0.0",
-            port=MESSAGE_PORT,
+            port=Config.MESSAGE_PORT,
             data_received_callback=self.flow_manager.data_received,
-            run_keepalive=not ALARM_MONITOR_SENDS_KEEPALIVES,
+            run_keepalive=not Config.ALARM_MONITOR_SENDS_KEEPALIVES,
             run_watchdog=True,
             send_non_pl31_messages=False,
         )
@@ -184,7 +175,7 @@ class ConnectionManager:
             proxy=self.proxy,
             name=ConnectionName.ALARM_MONITOR,
             host="0.0.0.0",
-            port=ALARM_MONITOR_PORT,
+            port=Config.ALARM_MONITOR_PORT,
             data_received_callback=self.flow_manager.data_received,
             run_keepalive=False,
             run_watchdog=False,
@@ -216,8 +207,8 @@ class ConnectionManager:
         client = ClientConnection(
             proxy=self.proxy,
             name=ConnectionName.VISONIC,
-            host=VISONIC_HOST,
-            port=MESSAGE_PORT,
+            host=Config.VISONIC_HOST,
+            port=Config.MESSAGE_PORT,
             parent_connection_id=client_id,
             data_received_callback=self.flow_manager.data_received,
             run_watchdog=True,
@@ -284,7 +275,7 @@ class ConnectionManager:
                 # Set timeout to exit stealth mode if in place for more than STEALTH_MODE_TIMEOUT seconds
                 event.event_data[Mode.STEALTH] = False
                 event.event_data["timeout"] = True
-                self.proxy.events.fire_event_later(STEALTH_MODE_TIMEOUT, event)
+                self.proxy.events.fire_event_later(Config.STEALTH_MODE_TIMEOUT, event)
 
     async def set_stealth_mode(self, enable: bool = False):
         """Disconnect Visonic and don't let reconnect for 5 mins.
@@ -308,7 +299,7 @@ class ConnectionManager:
             # If cause by timeout
             _LOGGER.info("Exiting Stealth Mode", extra=MsgLogLevel.L1)
             self.proxy.status.stealth_mode = False
-            if PROXY_MODE:
+            if Config.PROXY_MODE:
                 self.connect_visonic = True
 
                 # Set initial load to false in case Stealth was activated before first connection
@@ -372,7 +363,7 @@ class ConnectionManager:
 
         # Send status message to Alarm Monitor
         if (
-            SEND_E0_MESSAGES
+            Config.SEND_E0_MESSAGES
             and self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0
         ):
             await self.flow_manager.message_router.command_manager.send_status_message()
@@ -385,7 +376,10 @@ class ConnectionManager:
         self.proxy.clients.remove(event.name, event.client_id)
 
         # Send status message to Alarm Monitor
-        if SEND_E0_MESSAGES and self.proxy.clients.count(ConnectionName.ALARM) > 0:
+        if (
+            Config.SEND_E0_MESSAGES
+            and self.proxy.clients.count(ConnectionName.ALARM) > 0
+        ):
             await self.flow_manager.message_router.command_manager.send_status_message()
 
         if event.name == ConnectionName.ALARM:
@@ -408,7 +402,9 @@ class ConnectionManager:
                 event = Event(
                     name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
                 )
-                self.proxy.events.fire_event_later(VISONIC_RECONNECT_INTERVAL, event)
+                self.proxy.events.fire_event_later(
+                    Config.VISONIC_RECONNECT_INTERVAL, event
+                )
 
     async def send_message(self, message: QueuedMessage):
         """Route message to correct connection."""
