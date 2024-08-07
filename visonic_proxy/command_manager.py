@@ -93,20 +93,22 @@ class CommandManager:
     async def send_init_message(self):
         """Send init message on Visonic connection."""
         _LOGGER.info("Sending INIT to %s", ConnectionName.ALARM, extra=MsgLogLevel.L5)
-        msg = self._message_builer.message_preprocessor(
-            bytes.fromhex("b0 17 51 0f"),
-        )
+        init_messages = ["0f 24"]  # ["51","0f 24"]
+        for init_message in init_messages:
+            msg = self._message_builer.message_preprocessor(
+                bytes.fromhex(f"b0 17 {init_message}"),
+            )
 
-        await self.cb_send_message(
-            message=RoutableMessage(
-                source=ConnectionName.CM,
-                source_client_id=0,
-                destination=ConnectionName.ALARM,
-                destination_client_id=0,
-                message=msg,
-            ),
-            requires_ack=True,
-        )
+            await self.cb_send_message(
+                message=RoutableMessage(
+                    source=ConnectionName.CM,
+                    source_client_id=0,
+                    destination=ConnectionName.ALARM,
+                    destination_client_id=0,
+                    message=msg,
+                ),
+                requires_ack=True,
+            )
 
     async def send_status_message(self):
         """Send an status message.
