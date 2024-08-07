@@ -3,6 +3,8 @@
 import asyncio
 import logging
 
+from visonic_proxy.const import MESSAGE_LOG_LEVEL, Config
+
 from .connections.manager import ConnectionManager
 from .enums import ConnectionName, ManagerStatus, MsgLogLevel
 from .message_router import MessageCoordinatorStatus
@@ -24,6 +26,22 @@ class VisonicProxy:
 
     async def start(self):
         """Run managers."""
+
+        _LOGGER.info("Proxy Mode: %s", Config.PROXY_MODE)
+        _LOGGER.info("Log Level: %s", logging.getLevelName(logging.root.level))
+        _LOGGER.info("Message Log Level: %s", MESSAGE_LOG_LEVEL)
+
+        # Output config to debug
+        if logging.root.level == logging.DEBUG:
+            _LOGGER.debug("%s  CONFIG  %s", "".rjust(20, "-"), "".rjust(20, "-"))
+            configs = [
+                (attr, getattr(Config, attr))
+                for attr in vars(Config)
+                if not callable(getattr(Config, attr)) and not attr.startswith("__")
+            ]
+            for config in configs:
+                _LOGGER.debug("%s: %s", config[0], config[1])
+            _LOGGER.debug("%s", "".rjust(60, "-"))
 
         self.connection_manager = ConnectionManager(self.proxy)
 
