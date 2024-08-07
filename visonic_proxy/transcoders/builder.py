@@ -54,7 +54,8 @@ class MessageBuilder:
     ) -> NonPowerLink31Message:
         """Build ACK message.
 
-        0d 02 43 ba 0a
+        ACK - 0d 02 fd 0a
+        PL_ACK - 0d 02 43 ba 0a
         """
         return NonPowerLink31Message(
             msg_type=VIS_ACK,
@@ -103,7 +104,10 @@ class MessageBuilder:
             if msg[1:2] == b"\x02":
                 # Received ack message.  Use build_ack_message to ensure correct ACK type
                 # message = self.build_ack_message().data.hex(" ")
-                message = msg.hex(" ")
+                if msg == bytes.fromhex(ManagedMessages.ACK):
+                    message = ManagedMessages.PL_ACK
+                else:
+                    message = msg.hex(" ")
                 msg_type = VIS_ACK
             else:
                 message = msg.hex(" ")
