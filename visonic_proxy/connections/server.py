@@ -327,9 +327,7 @@ class ServerConnection:
                         ).total_seconds()
                         > KEEPALIVE_TIMER
                     ):
-                        _LOGGER.info(
-                            "Firing KeepAlive timout event", extra=MsgLogLevel.L5
-                        )
+                        _LOGGER.debug("Firing KeepAlive timeout event")
                         self.proxy.events.fire_event(
                             Event(self.name, EventType.SEND_KEEPALIVE, client_id)
                         )
