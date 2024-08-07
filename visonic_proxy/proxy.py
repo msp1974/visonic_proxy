@@ -54,6 +54,9 @@ class MessageTracker:
     def get_next_message_id(self) -> int:
         """Increment message id and return it."""
         self.last_message_no = self.last_message_no + 1
+        # Message id can only be 4 digits, so needs to loop back to 0 if hits 10000
+        if self.last_message_no >= 10000:
+            self.last_message_no = self.last_message_no - 10000
         return self.last_message_no
 
 
