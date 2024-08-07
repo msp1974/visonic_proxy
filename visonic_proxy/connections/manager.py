@@ -6,6 +6,7 @@ from enum import StrEnum
 import logging
 
 from ..const import (
+    ALARM_MONITOR_PORT,
     ALARM_MONITOR_SENDS_KEEPALIVES,
     MESSAGE_PORT,
     PROXY_MODE,
@@ -173,7 +174,7 @@ class ConnectionManager:
             proxy=self.proxy,
             name=ConnectionName.ALARM,
             host="0.0.0.0",
-            port=5001,
+            port=MESSAGE_PORT,
             data_received_callback=self.flow_manager.data_received,
             run_keepalive=not ALARM_MONITOR_SENDS_KEEPALIVES,
             run_watchdog=True,
@@ -183,7 +184,7 @@ class ConnectionManager:
             proxy=self.proxy,
             name=ConnectionName.ALARM_MONITOR,
             host="0.0.0.0",
-            port=5002,
+            port=ALARM_MONITOR_PORT,
             data_received_callback=self.flow_manager.data_received,
             run_keepalive=False,
             run_watchdog=False,
