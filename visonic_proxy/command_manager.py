@@ -25,6 +25,8 @@ class CommandManager:
 
         self._message_builer = MessageBuilder(self.proxy)
 
+        self.init_commands: list[str] = []
+
     def start(self, send_callback: Callable):
         """Start command manager."""
         self.cb_send_message = send_callback
@@ -93,10 +95,15 @@ class CommandManager:
     async def send_init_message(self):
         """Send init message on Visonic connection."""
         _LOGGER.info("Sending INIT to %s", ConnectionName.ALARM, extra=MsgLogLevel.L5)
-        init_messages = ["0f 24"]  # ["51","0f 24"]
+        if self.init_commands:
+            init_messages = [" ".join(set(self.init_commands))]
+            # Reset for next time
+            self.init_commands = []
+        else:
+            init_messages = ["0f"]  # ["51","0f 24"]
         for init_message in init_messages:
             msg = self._message_builer.message_preprocessor(
-                bytes.fromhex(f"b0 17 {init_message}"),
+                bytes.fromhex(f"b0 17 51 {init_message}"),
             )
 
             await self.cb_send_message(
@@ -128,7 +135,7 @@ class CommandManager:
                 f"{self.proxy.clients.count(ConnectionName.ALARM):02x}",
                 f"{self.proxy.clients.count(ConnectionName.VISONIC):02x}",
                 f"{self.proxy.clients.count(ConnectionName.ALARM_MONITOR):02x}",
-                f"{"01" if self.proxy.status.proxy_mode else "00"}",
+                f"{"01" if self.proxy.status.stealth_mode else "00"}",
                 f"{"01" if self.proxy.status.download_mode else "00"}",
                 "43",
             ]

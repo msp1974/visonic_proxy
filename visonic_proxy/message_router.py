@@ -5,6 +5,7 @@ from enum import StrEnum
 import logging
 
 from visonic_proxy.proxy import Proxy
+from visonic_proxy.transcoders.b0_basic_decoder import B0BasicDecoder
 
 from .command_manager import CommandManager
 from .const import ADM_ACK, ADM_CID, NAK, VIS_ACK, VIS_BBA, Config
@@ -63,6 +64,34 @@ class MessageRouter:
 
         self.status = ManagerStatus.STOPPED
         _LOGGER.info("Message Router stopped")
+
+    async def process_message(self, message: RoutableMessage):
+        """Update status from certain messages."""
+        if message.message.message_class == "b0":
+            b0_command = message.message.data[3:4].hex()
+
+            if b0_command in ["0f", "24"]:
+                # These are status messages and we can get if in download mode
+                status = B0BasicDecoder().decode(message.message.data)
+                is_download_mode = status.get("status", "") == 7
+                if self.proxy.status.download_mode != is_download_mode:
+                    self.proxy.status.download_mode = is_download_mode
+                    await self.command_manager.send_status_message()
+
+            if b0_command == "51" and self.proxy.status.disconnected_mode:
+                # Get all the commands in a b0 51 message and add to init commands if we are
+                # in disconnected mode.  Then when we reconnect Visonic, we will send them.
+                if commands := B0BasicDecoder().decode(message.message.data):
+                    self.command_manager.init_commands.extend(
+                        commands.get("commands", [])
+                    )
+
+        # Handle non b0 messaged
+        # 09 is download mode request, 0f is exit download mode, 3c is message when in download mode after request
+        # No such confirmation for a 0f
+        if message.message.message_class in ["3c", "0f"]:
+            self.proxy.status.download_mode = message.message.message_class == "3c"
+            await self.command_manager.send_status_message()
 
     async def route_message(self, route_message: RoutableMessage):
         """Route message."""
@@ -152,6 +181,9 @@ class MessageRouter:
             await self.forward_message(
                 ConnectionName.VISONIC, message.source_client_id, message
             )
+
+        # Process information from certain messages
+        await self.process_message(message)
 
         # Forward to all Alarm Monitor connections
         # Alarm monitor connections do not have same connection id so, send to all

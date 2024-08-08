@@ -68,9 +68,10 @@ class VisonicProxy:
                 extra=MsgLogLevel.L2,
             )
             _LOGGER.info(
-                "MODES: Disconnected Mode: %s, Stealth Mode: %s",
+                "MODES: Disconnected Mode: %s, Stealth Mode: %s, Download Mode: %s",
                 self.proxy.status.disconnected_mode,
                 self.proxy.status.stealth_mode,
+                self.proxy.status.download_mode,
                 extra=MsgLogLevel.L2,
             )
             _LOGGER.info(
