@@ -8,7 +8,7 @@ import itertools
 import logging
 from socket import AF_INET
 
-from ..const import KEEPALIVE_TIMER, VIS_ACK
+from ..const import VIS_ACK, Config
 from ..enums import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
@@ -97,8 +97,7 @@ class ServerConnection:
     async def start_listening(self):
         """Start server to allow Alarm to connect."""
         try:
-            loop = asyncio.get_running_loop()
-            self.server = await loop.create_server(
+            self.server = await self.proxy.loop.create_server(
                 lambda: ConnectionProtocol(
                     self.name,
                     self.client_connected,
@@ -168,8 +167,7 @@ class ServerConnection:
 
         # If needs keepalive timer, start it
         if self.run_keepalive and not self.keep_alive_timer_task:
-            # loop = asyncio.get_running_loop()
-            self.keep_alive_timer_task = asyncio.create_task(
+            self.keep_alive_timer_task = self.proxy.loop.create_task(
                 self.keep_alive_timer(), name="KeepAlive timer"
             )
 
@@ -325,11 +323,9 @@ class ServerConnection:
                         and (
                             dt.datetime.now() - client.last_received_message
                         ).total_seconds()
-                        > KEEPALIVE_TIMER
+                        > Config.KEEPALIVE_TIMER
                     ):
-                        _LOGGER.info(
-                            "Firing KeepAlive timout event", extra=MsgLogLevel.L5
-                        )
+                        _LOGGER.debug("Firing KeepAlive timeout event")
                         self.proxy.events.fire_event(
                             Event(self.name, EventType.SEND_KEEPALIVE, client_id)
                         )

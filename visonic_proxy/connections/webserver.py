@@ -10,12 +10,11 @@ import logging
 import os
 from ssl import PROTOCOL_TLS_SERVER, SSLContext
 import time
-import traceback
 
 import requests
 import urllib3
 
-from ..const import PROXY_MODE, VISONIC_HOST
+from ..const import Config
 from ..enums import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
@@ -65,14 +64,14 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         self.send_response(200)
 
-        if PROXY_MODE:
+        if Config.PROXY_MODE:
             try:
                 headers = {}
                 headers["Content-Type"] = "application/x-www-form-urlencoded"
                 headers["Connection"] = "keep-alive"
                 s = requests.Session()
                 res = s.post(
-                    f"https://{VISONIC_HOST}:8443{self.path}",
+                    f"https://{Config.VISONIC_HOST}:8443{self.path}",
                     headers=headers,
                     data=post_body,
                     verify=False,
@@ -94,26 +93,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                                     ConnectionName.VISONIC,
                                     EventType.REQUEST_CONNECT,
                                 )
-                                future = asyncio.run_coroutine_threadsafe(
-                                    WebResponseController.proxy.events.async_fire_event(
-                                        event
-                                    ),
-                                    WebResponseController.loop,
-                                )
-                                # Wait for the result with an optional timeout argument
-                                try:
-                                    assert future.result(5)
-                                except (AssertionError, TimeoutError):
-                                    _LOGGER.error(
-                                        "Webserver failed to fire connect request event"
-                                    )
-                                    _LOGGER.error(traceback.format_exc())
+                                WebResponseController.proxy.events.fire_event(event)
                 except requests.exceptions.JSONDecodeError:
                     _LOGGER.info("cannot decode response")
                     response = {}
 
                 if WebResponseController.request_connect:
-                    _LOGGER.debug("WEBSERVER: Request to connect is set")
+                    _LOGGER.info(
+                        "Webserver sent request to connect", extra=MsgLogLevel.L1
+                    )
                     resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
                 else:
                     resp = res.content
@@ -227,8 +215,7 @@ class Webserver:
 
     async def start(self):
         """Start webserver."""
-        evloop = asyncio.get_running_loop()
-        await evloop.run_in_executor(None, self._webserver, evloop)
+        await self.proxy.loop.run_in_executor(None, self._webserver, self.proxy.loop)
         _LOGGER.info("Webserver stopped")
 
     async def stop(self):

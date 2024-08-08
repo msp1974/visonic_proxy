@@ -50,8 +50,7 @@ class Watchdog:
 
     def _schedule_next_run(self):
         """Schedule next run of watchdog."""
-        loop = asyncio.get_running_loop()
-        self._watchdog_timer = loop.call_later(15, self._runner)
+        self._watchdog_timer = self.proxy.loop.call_later(15, self._runner)
 
     async def stop(self):
         """Stop watchdog timer."""
