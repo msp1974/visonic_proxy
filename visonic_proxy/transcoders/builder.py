@@ -249,21 +249,18 @@ class MessageBuilder:
         cmd = "42"
         no_configs = int(len(params.split(" ")) / 2)
 
-        if no_configs < 3:
-            # Need to have min 3 here and be filled up with 00 00
-            bparams = bytearray.fromhex(params)
-            bparams.extend([0 for i in range((2 - no_configs) * 2)])
-            bparams.extend(bytearray.fromhex("ff ff"))
-            params = bparams.hex(" ")
-            no_configs = 3
+        if no_configs == 1:
+            params = f"{params} 00 00 ff ff"
+        elif no_configs == 2:
+            params = f"{params} ff ff"
 
-        length = 5 + (no_configs * 2)
+        length = 5 + (max(6, no_configs * 2))
         msg = f"{cmd}"
         msg += f" {length:02x}"
-        msg += " 02 ff 08 0c"
-        msg += f" {no_configs * 2:02x}"  # 2 bytes per config entry
+        msg += f" {(6 if no_configs > 1 else 2):02d}"
+        msg += " ff 08 0c"
+        msg += f" {(length-5):02x}"  # 2 bytes per config entry
         msg += f" {params}"
-
         return msg
 
     def build_powerlink31_message(
