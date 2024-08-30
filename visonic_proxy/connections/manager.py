@@ -323,15 +323,17 @@ class ConnectionManager:
         activity = True
         while activity:
             await asyncio.sleep(1)
-            active_clients = [
-                (dt.datetime.now() - client.last_received).total_seconds()
-                <= Config.STEALTH_MODE_TIMEOUT
-                for client in self.proxy.clients.get_clients(
-                    ConnectionName.ALARM_MONITOR
-                )
-            ]
+            active_clients = 0
+            for client in self.proxy.clients.get_clients(ConnectionName.ALARM_MONITOR):
+                if (
+                    client
+                    and client.last_received
+                    and (dt.datetime.now() - client.last_received).total_seconds()
+                    <= Config.STEALTH_MODE_TIMEOUT
+                ):
+                    active_clients += 1
 
-            if True not in active_clients:
+            if active_clients:
                 activity = False
                 # Log timeout message if exit caused by timeout timer
                 _LOGGER.info("Timeout in Stealth Mode", extra=MsgLogLevel.L1)
@@ -402,7 +404,10 @@ class ConnectionManager:
 
     async def disconnection_event(self, event: Event):
         """Handle connection event."""
-        _LOGGER.debug("Received Disconnection Event - %s", event)
+        _LOGGER.info("Received Disconnection Event - %s", event)
+        _LOGGER.info(
+            "CLIENTS: %s", self.proxy.clients.count(ConnectionName.ALARM_MONITOR)
+        )
 
         # Unregister client connection
         self.proxy.clients.remove(event.name, event.client_id)
@@ -437,6 +442,9 @@ class ConnectionManager:
                 self.proxy.events.fire_event_later(
                     Config.VISONIC_RECONNECT_INTERVAL, event
                 )
+        _LOGGER.info(
+            "CLIENTS: %s", self.proxy.clients.count(ConnectionName.ALARM_MONITOR)
+        )
 
     async def send_message(self, message: QueuedMessage):
         """Route message to correct connection."""
