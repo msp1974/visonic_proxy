@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+import datetime as dt
 from enum import StrEnum
 import logging
 
@@ -46,6 +47,7 @@ class ConnectionManager:
         self.webserver: Webserver = None
         self.webserver_task: asyncio.Task = None
         self.watchdog_task: asyncio.Task = None
+        self.stealth_timeout_task: asyncio.Task = None
 
         self.servers: dict[str, ServerConnection] = {}
 
@@ -145,6 +147,10 @@ class ConnectionManager:
         # Stop connection servers
         for server in self.servers.values():
             await server.shutdown()
+
+        # Cancel stealth timeout task
+        if self.stealth_timeout_task and not self.stealth_timeout_task.done():
+            self.stealth_timeout_task.cancel()
 
         self.status = ConnectionCoordinatorStatus.STOPPED
         _LOGGER.info("Connection Manager is stopped")
@@ -265,17 +271,7 @@ class ConnectionManager:
         setting is the data value
         """
         if Mode.STEALTH in event.event_data:
-            # Log timeout message if exit caused by timeout timer
-            if event.event_data.get("timeout") and self.proxy.status.stealth_mode:
-                _LOGGER.info("Timeout in Stealth Mode", extra=MsgLogLevel.L1)
-
             await self.set_stealth_mode(event.event_data[Mode.STEALTH])
-
-            if event.event_data[Mode.STEALTH]:
-                # Set timeout to exit stealth mode if in place for more than STEALTH_MODE_TIMEOUT seconds
-                event.event_data[Mode.STEALTH] = False
-                event.event_data["timeout"] = True
-                self.proxy.events.fire_event_later(Config.STEALTH_MODE_TIMEOUT, event)
 
     async def set_stealth_mode(self, enable: bool = False):
         """Disconnect Visonic and don't let reconnect for 5 mins.
@@ -295,9 +291,20 @@ class ConnectionManager:
                 if self.proxy.clients.get_client(ConnectionName.VISONIC, client_id):
                     await self.stop_client_connection(client_id)
 
+            # Set timeout task.  This is a safety net to reconnect Visonic if Monitor connection does not release
+            # stealth mode and does not keep requesting.
+            self.stealth_timeout_task = self.proxy.loop.create_task(
+                self.stealth_mode_timeout()
+            )
+
         elif (not enable) and self.proxy.status.stealth_mode:
             # If cause by timeout
             _LOGGER.info("Exiting Stealth Mode", extra=MsgLogLevel.L1)
+
+            # Stop any timeout task
+            if self.stealth_timeout_task and not self.stealth_timeout_task.done():
+                self.stealth_timeout_task.cancel()
+
             self.proxy.status.stealth_mode = False
             if Config.PROXY_MODE:
                 self.connect_visonic = True
@@ -310,6 +317,31 @@ class ConnectionManager:
                     name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
                 )
                 self.proxy.events.fire_event_later(1, event)
+
+    async def stealth_mode_timeout(self):
+        """Timeout for stealth mode to revert if no message from HA."""
+        activity = True
+        while activity:
+            await asyncio.sleep(1)
+            active_clients = [
+                (dt.datetime.now() - client.last_received).total_seconds()
+                <= Config.STEALTH_MODE_TIMEOUT
+                for client in self.proxy.clients.get_clients(
+                    ConnectionName.ALARM_MONITOR
+                )
+            ]
+
+            if True not in active_clients:
+                activity = False
+                # Log timeout message if exit caused by timeout timer
+                _LOGGER.info("Timeout in Stealth Mode", extra=MsgLogLevel.L1)
+                self.proxy.events.fire_event(
+                    Event(
+                        name=ConnectionName.CM,
+                        event_type=EventType.SET_MODE,
+                        event_data={Mode.STEALTH: False, "timeout": True},
+                    )
+                )
 
     async def connection_event(self, event: Event):
         """Handle connection event."""
