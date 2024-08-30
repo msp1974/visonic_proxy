@@ -252,8 +252,20 @@ class FlowManager:
                         _LOGGER.warning("Powerlink: %s", decoded_message)
                         continue
 
-                # If waiting ack and receive ack, set RTS
+                # EXPERIMENTAL - If waiting ack from a connection and get a message, release ACK wait
                 if (
+                    self.ack_awaiter
+                    and self.ack_awaiter.source == source
+                    and self.ack_awaiter.source_client_id == client_id
+                    and decoded_message.msg_type in [VIS_BBA, ADM_CID]
+                ):
+                    _LOGGER.warning(
+                        "Skip waiting ack from %s as received new message", source
+                    )
+                    self.release_send_queue()
+
+                # If waiting ack and receive ack, set RTS
+                elif (
                     not self.is_rts  # Waiting for ACK
                     and decoded_message.msg_type
                     in [VIS_ACK, ADM_ACK, NAK]  # And this is an ACK message
@@ -368,7 +380,7 @@ class FlowManager:
         if message.message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
             priority = 0
         else:
-            priority = self.proxy.clients.get_connection_priroity(
+            priority = self.proxy.clients.get_connection_priority(
                 message.source, message.source_client_id
             )
 
