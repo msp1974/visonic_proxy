@@ -31,7 +31,7 @@ Install through Addons UI
 The Visonic proxy currently sends 1 status message on every connection change to the monitor clients connected.
 Message is
 ```
-0d e0 <no of alarm clients connected> <no of visonic clients connected> <no of monitor clients connected> <if in proxy mode> <if in stealth mode> 43 <checksum> 0a
+0d e0 <no of alarm clients connected> <no of visonic clients connected> <no of monitor clients connected> <if in proxy mode> <if in stealth mode> <if panel in download mode> 43 <checksum> 0a
 ```
 ie 
 ```
