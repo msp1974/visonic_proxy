@@ -51,6 +51,9 @@ class Config:
     ALARM_MONITOR_SENDS_ACKS = True  # Monitor sends ACKS
     ALARM_MONITOR_NEEDS_ACKS = True  # Monitor expects ACKS
     ALARM_MONITOR_SENDS_KEEPALIVES = False  # Monitor handles keepalives
+    ALARM_MONITOR_SEND_TO_ALL = (
+        True  # When sending to monitor connection, send to all clients
+    )
 
     ACK_B0_03_MESSAGES = False  # If CM should ACK B0 messages
     SEND_E0_MESSAGES = True  # Send E0 status messages to Alarm Montitor clients

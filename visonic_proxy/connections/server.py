@@ -190,43 +190,50 @@ class ServerConnection:
 
     async def send_message(self, queued_message: QueuedMessage):
         """Send message."""
-        # Check client is connected
-        if queued_message.destination_client_id == 0:
+
+        if (
+            self.name == ConnectionName.ALARM_MONITOR
+            and Config.ALARM_MONITOR_SEND_TO_ALL
+        ):
+            # Send any message to all clients
+            targets = list(self.clients.keys())
+        elif queued_message.destination_client_id == 0:
             # If set to 0, send to first client connection
-            client_id = self.get_first_client_id()
+            targets = [self.get_first_client_id()]
         else:
-            client_id = queued_message.destination_client_id
+            targets = [queued_message.destination_client_id]
 
-        if client_id in self.clients:
-            client = self.clients[client_id]
+        for client_id in targets:
+            if client_id in self.clients:
+                client = self.clients[client_id]
 
-            if client.transport:
-                if self.send_non_pl31_messages:
-                    client.transport.write(queued_message.message.data)
-                    _LOGGER.debug("Data Sent: %s", queued_message.message.data)
-                else:
-                    client.transport.write(queued_message.message.raw_data)
-                    _LOGGER.debug("Data Sent: %s", queued_message.message.raw_data)
+                if client.transport:
+                    if self.send_non_pl31_messages:
+                        client.transport.write(queued_message.message.data)
+                        _LOGGER.debug("Data Sent: %s", queued_message.message.data)
+                    else:
+                        client.transport.write(queued_message.message.raw_data)
+                        _LOGGER.debug("Data Sent: %s", queued_message.message.raw_data)
 
-                _LOGGER.info(
-                    "%s->%s %s - %s %s %s",
-                    queued_message.source,
-                    self.name,
+                    _LOGGER.info(
+                        "%s->%s %s - %s %s %s",
+                        queued_message.source,
+                        self.name,
+                        client_id,
+                        f"{queued_message.message.msg_id:0>4}",
+                        queued_message.message.msg_type,
+                        queued_message.message.data.hex(" "),
+                        extra=MsgLogLevel.L3
+                        if queued_message.message.msg_type == VIS_ACK
+                        else MsgLogLevel.L2,
+                    )
+            else:
+                _LOGGER.error(
+                    "Unable to send message to %s %s",
+                    queued_message.destination,
                     queued_message.destination_client_id,
-                    f"{queued_message.message.msg_id:0>4}",
-                    queued_message.message.msg_type,
-                    queued_message.message.data.hex(" "),
-                    extra=MsgLogLevel.L3
-                    if queued_message.message.msg_type == VIS_ACK
-                    else MsgLogLevel.L2,
                 )
-
-                return True
-        _LOGGER.error(
-            "Unable to send message to %s %s",
-            queued_message.destination,
-            queued_message.destination_client_id,
-        )
+        return True
 
     def client_disconnected(self, transport: asyncio.Transport):
         """Disconnected callback."""
