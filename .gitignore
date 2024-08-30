@@ -77,5 +77,5 @@ venv.bak/
 
 .vscode
 
-logs/
+message.log*
 
