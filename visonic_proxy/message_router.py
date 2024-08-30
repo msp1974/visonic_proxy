@@ -134,16 +134,16 @@ class MessageRouter:
         # ---------------------------------------------------------------
         # ALARM MONITOR
         # ---------------------------------------------------------------
-        if message.source == ConnectionName.ALARM_MONITOR:
-            if self.proxy.status.disconnected_mode:
-                # Must be for Alarm
-                await self.forward_message(
-                    ConnectionName.ALARM,
-                    0,
-                    message,
-                    False,
-                )
-            return
+        # if message.source == ConnectionName.ALARM_MONITOR:
+        #    if self.proxy.status.disconnected_mode:
+        #        # Must be for Alarm
+        #        await self.forward_message(
+        #            ConnectionName.ALARM,
+        #            0,
+        #            message,
+        #            False,
+        #        )
+        #    return
 
         # ---------------------------------------------------------------
         # ALL
@@ -157,50 +157,33 @@ class MessageRouter:
             )
             return
 
-        if message.destination != ConnectionName.CM:
+        if (
+            message.destination != ConnectionName.CM
+            and message.source != ConnectionName.ALARM_MONITOR
+        ):
             _LOGGER.warning("ACK received with no destination. %s", message)
 
         return
 
     async def alarm_router(self, message: RoutableMessage):
         """Route Alarm received VIS-BBA and *ADM-CID messages."""
-        if self.proxy.status.disconnected_mode:
-            # if disconnected from Visonic
-            if (
-                message.message.msg_type == VIS_BBA
-                and (
-                    self.proxy.clients.count(ConnectionName.ALARM_MONITOR)
-                    == 0  # No monitor clients
-                    or not Config.ALARM_MONITOR_SENDS_ACKS  # Monitor connected but it doesn't send ACKs
-                )
-            ):
-                await self.command_manager.send_ack_message(message)
 
-        else:
-            # If not in disconnected mode, forward everything to Visonic
-            await self.forward_message(
-                ConnectionName.VISONIC, message.source_client_id, message
-            )
+        # Does CM send an ACK?
+        if self.proxy.status.disconnected_mode and message.message.msg_type == VIS_BBA:
+            # if (
+            #    self.proxy.clients.count(ConnectionName.ALARM_MONITOR)
+            #    == 0  # No monitor clients
+            #    or not Config.ALARM_MONITOR_SENDS_ACKS
+            #    or (Config.ACK_B0_03_MESSAGES and message.message.message_class == "b0")
+            # ):
+            await self.command_manager.send_ack_message(message)
 
-        # Process information from certain messages
-        await self.process_message(message)
-
-        # Forward to all Alarm Monitor connections
-        # Alarm monitor connections do not have same connection id so, send to all
-        if self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0:
-            # Do not forward *ADM-CID messages
-            if message.message.msg_type == ADM_CID:
-                return
-
-            if (
-                self.proxy.status.disconnected_mode
-                and Config.ACK_B0_03_MESSAGES
-                and message.message.message_class == "b0"
-            ):
-                await self.command_manager.send_ack_message(message)
-
+        if (
+            self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0
+            and message.message.msg_type != ADM_CID
+        ):
             # Set things going to Alarm Monitor that do not need ACKs
-            requires_ack = True
+            requires_ack = False
             if (
                 message.message.message_class == "b0"
                 or message.message.data
@@ -215,6 +198,14 @@ class MessageRouter:
                 message,
                 requires_ack=requires_ack,
             )
+
+        if not self.proxy.status.disconnected_mode:
+            await self.forward_message(
+                ConnectionName.VISONIC, message.source_client_id, message
+            )
+
+        # Process information from certain messages
+        await self.process_message(message)
 
     async def visonic_router(self, message: RoutableMessage):
         """Route Visonic received VIS-BBA and *ADM-CID messages."""
