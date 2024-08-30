@@ -78,7 +78,7 @@ class CommandManager:
             extra=MsgLogLevel.L5,
         )
         msg = self._message_builer.build_ack_message(
-            message.message.msg_id, not self.proxy.status.download_mode
+            message.message.msg_id, message.message.message_class == "b0"
         )
 
         await self.cb_send_message(
@@ -135,6 +135,7 @@ class CommandManager:
                 f"{self.proxy.clients.count(ConnectionName.ALARM):02x}",
                 f"{self.proxy.clients.count(ConnectionName.VISONIC):02x}",
                 f"{self.proxy.clients.count(ConnectionName.ALARM_MONITOR):02x}",
+                f"{"01" if self.proxy.status.proxy_mode else "00"}",
                 f"{"01" if self.proxy.status.stealth_mode else "00"}",
                 f"{"01" if self.proxy.status.download_mode else "00"}",
                 "43",
