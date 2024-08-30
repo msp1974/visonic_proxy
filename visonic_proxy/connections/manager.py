@@ -333,7 +333,7 @@ class ConnectionManager:
                 ):
                     active_clients += 1
 
-            if active_clients:
+            if not active_clients:
                 activity = False
                 # Log timeout message if exit caused by timeout timer
                 _LOGGER.info("Timeout in Stealth Mode", extra=MsgLogLevel.L1)
@@ -404,10 +404,7 @@ class ConnectionManager:
 
     async def disconnection_event(self, event: Event):
         """Handle connection event."""
-        _LOGGER.info("Received Disconnection Event - %s", event)
-        _LOGGER.info(
-            "CLIENTS: %s", self.proxy.clients.count(ConnectionName.ALARM_MONITOR)
-        )
+        _LOGGER.debug("Received Disconnection Event - %s", event)
 
         # Unregister client connection
         self.proxy.clients.remove(event.name, event.client_id)
@@ -442,9 +439,6 @@ class ConnectionManager:
                 self.proxy.events.fire_event_later(
                     Config.VISONIC_RECONNECT_INTERVAL, event
                 )
-        _LOGGER.info(
-            "CLIENTS: %s", self.proxy.clients.count(ConnectionName.ALARM_MONITOR)
-        )
 
     async def send_message(self, message: QueuedMessage):
         """Route message to correct connection."""
