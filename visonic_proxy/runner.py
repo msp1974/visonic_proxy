@@ -25,7 +25,7 @@ class VisonicProxy:
 
     async def start(self):
         """Run managers."""
-
+        self.proxy.status.proxy_mode = Config.PROXY_MODE
         _LOGGER.info("Proxy Mode: %s", Config.PROXY_MODE)
         _LOGGER.info("Log Level: %s", logging.getLevelName(logging.root.level))
         _LOGGER.info("Message Log Level: %s", MESSAGE_LOG_LEVEL)
