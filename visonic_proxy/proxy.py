@@ -132,7 +132,7 @@ class Clients:
                 client_id,
             )
 
-    def get_connection_priroity(self, name: ConnectionName, client_id: int) -> int:
+    def get_connection_priority(self, name: ConnectionName, client_id: int) -> int:
         """Get priority of conection."""
         if client := self.get_client(name, client_id):
             return client.connection_priority
