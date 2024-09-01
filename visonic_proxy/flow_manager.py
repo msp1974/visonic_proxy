@@ -471,6 +471,7 @@ class FlowManager:
 
             # Message done even if not sent due to no clients
             self.sender_queue.task_done()
+            await asyncio.sleep(0.001)
 
     async def _send_message(self, queued_message: QueuedMessage) -> int | None:
         """Send message.
