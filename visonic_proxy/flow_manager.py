@@ -259,8 +259,10 @@ class FlowManager:
                     and self.ack_awaiter.source_client_id == client_id
                     and decoded_message.msg_type in [VIS_BBA, ADM_CID]
                 ):
-                    _LOGGER.warning(
-                        "Skip waiting ack from %s as received new message", source
+                    _LOGGER.info(
+                        "Skip waiting ack from %s as received new message",
+                        source,
+                        extra=MsgLogLevel.L5,
                     )
                     self.release_send_queue()
 
@@ -326,7 +328,7 @@ class FlowManager:
                             source == ConnectionName.ALARM_MONITOR
                             and decoded_message.msg_id == 0
                         ):
-                            _LOGGER.warning(
+                            _LOGGER.info(
                                 "ACK was out of sync with awaiter. ACK: %s, WAITER: %s",
                                 decoded_message.msg_id,
                                 self.ack_awaiter.msg_id,
@@ -406,7 +408,7 @@ class FlowManager:
 
             message: QueuedMessage = queue_message[1]
 
-            _LOGGER.debug("Retieved from Send Queue: %s", message)
+            _LOGGER.debug("Retrieved from Send Queue: %s", message)
             # A destination client id of 0 is send to first connection
             # get_connection_info will return the first client connection is passed 0 as client_id
             connection_info = self.proxy.clients.get_client(
