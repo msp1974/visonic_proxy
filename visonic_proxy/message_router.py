@@ -161,7 +161,7 @@ class MessageRouter:
             message.destination != ConnectionName.CM
             and message.source != ConnectionName.ALARM_MONITOR
         ):
-            _LOGGER.warning("ACK received with no destination. %s", message)
+            _LOGGER.debug("ACK received with no destination. %s", message)
 
         return
 
@@ -256,21 +256,24 @@ class MessageRouter:
         """
         # Respond to command requests
         if message.message.message_class == Config.ACTION_COMMAND.lower():
+            if Config.ALARM_MONITOR_NEEDS_ACKS:
+                await self.command_manager.send_ack_message(message)
             await self.command_manager.do_action_command(message)
             return
 
         # Set DOWNLOAD mode
         # TODO: Dont fix this message class here!!
         if (
-            message.message.data == bytes.fromhex(ManagedMessages.BUMP)
+            message.message.data == bytes.fromhex(ManagedMessages.DOWNLOAD)
             or message.message.message_class == "24"
         ):
             # Alarm Monitor has requested to download EPROM.  Need to ask connection manager to
             # set stealth mode
             if not self.proxy.status.stealth_mode:
+                _LOGGER.info("Entering download mode", extra=MsgLogLevel.L1)
                 self.proxy.events.fire_event(
                     Event(
-                        name=message.source,
+                        name=ConnectionName.CM,
                         event_type=EventType.SET_MODE,
                         event_data={Mode.STEALTH: True},
                     )
@@ -281,9 +284,10 @@ class MessageRouter:
             # Alarm Monitor has requested to end downloading EPROM.  Need to ask connection manager to
             # unset stealth mode
             if self.proxy.status.stealth_mode:
+                _LOGGER.info("Exiting download mode", extra=MsgLogLevel.L1)
                 self.proxy.events.fire_event(
                     Event(
-                        name=message.source,
+                        name=ConnectionName.CM,
                         event_type=EventType.SET_MODE,
                         event_data={Mode.STEALTH: False},
                     )

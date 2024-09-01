@@ -78,7 +78,7 @@ class CommandManager:
             extra=MsgLogLevel.L5,
         )
         msg = self._message_builer.build_ack_message(
-            message.message.msg_id, message.message.message_class == "b0"
+            message.message.msg_id, message.message.message_class in ["b0", "e0", "e1"]
         )
 
         await self.cb_send_message(
@@ -90,6 +90,28 @@ class CommandManager:
                 message=msg,
             ),
             requires_ack=False,
+        )
+
+    async def send_status_request(
+        self, destination: ConnectionName = ConnectionName.ALARM
+    ):
+        """Send b0 24 status request."""
+        _LOGGER.info(
+            "Sending B0 0f status request to %s",
+            destination,
+            extra=MsgLogLevel.L5,
+        )
+        msg = self._message_builer.message_preprocessor(bytes.fromhex("b0 0f"))
+
+        await self.cb_send_message(
+            message=RoutableMessage(
+                source=ConnectionName.CM,
+                source_client_id=0,
+                destination=destination,
+                destination_client_id=0,
+                message=msg,
+            ),
+            requires_ack=True,
         )
 
     async def send_init_message(self):
@@ -152,7 +174,7 @@ class CommandManager:
                     destination_client_id=0,
                     message=msg,
                 ),
-                requires_ack=False,
+                requires_ack=Config.ALARM_MONITOR_SENDS_ACKS,
             )
 
     async def do_action_command(self, message: RoutableMessage):
