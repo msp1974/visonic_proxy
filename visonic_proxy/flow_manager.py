@@ -379,12 +379,12 @@ class FlowManager:
 
         # ACKs should always take highest priority
         # Then in source order
-        if message.message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
-            priority = 0
-        else:
-            priority = self.proxy.clients.get_connection_priority(
-                message.source, message.source_client_id
-            )
+        # if message.message.msg_type in [VIS_ACK, ADM_ACK, NAK]:
+        #    priority = 0
+        # else:
+        priority = self.proxy.clients.get_connection_priority(
+            message.source, message.source_client_id
+        )
 
         queue_entry = QueuedMessage(
             q_id=QID.get_next(),
