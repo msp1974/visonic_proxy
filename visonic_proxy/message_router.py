@@ -168,16 +168,6 @@ class MessageRouter:
     async def alarm_router(self, message: RoutableMessage):
         """Route Alarm received VIS-BBA and *ADM-CID messages."""
 
-        # Does CM send an ACK?
-        if self.proxy.status.disconnected_mode and message.message.msg_type == VIS_BBA:
-            # if (
-            #    self.proxy.clients.count(ConnectionName.ALARM_MONITOR)
-            #    == 0  # No monitor clients
-            #    or not Config.ALARM_MONITOR_SENDS_ACKS
-            #    or (Config.ACK_B0_03_MESSAGES and message.message.message_class == "b0")
-            # ):
-            await self.command_manager.send_ack_message(message)
-
         if (
             self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0
             and message.message.msg_type != ADM_CID
@@ -203,6 +193,10 @@ class MessageRouter:
             await self.forward_message(
                 ConnectionName.VISONIC, message.source_client_id, message
             )
+
+        # Does CM send an ACK?
+        if self.proxy.status.disconnected_mode and message.message.msg_type == VIS_BBA:
+            await self.command_manager.send_ack_message(message)
 
         # Process information from certain messages
         await self.process_message(message)
