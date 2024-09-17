@@ -273,6 +273,8 @@ class ConnectionManager:
         if Mode.STEALTH in event.event_data:
             await self.set_stealth_mode(event.event_data[Mode.STEALTH])
 
+        await self.flow_manager.message_router.command_manager.send_status_message()
+
     async def set_stealth_mode(self, enable: bool = False):
         """Disconnect Visonic and don't let reconnect for 5 mins.
 
