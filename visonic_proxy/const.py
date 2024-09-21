@@ -1,9 +1,8 @@
 """Constants."""
 
 from collections import namedtuple
+from enum import IntEnum, StrEnum
 import logging
-
-from visonic_proxy.enums import Colour, ConnectionName
 
 LOG_LEVEL = logging.INFO
 LOG_TO_FILE = True
@@ -16,24 +15,13 @@ LOG_FILES_TO_KEEP = 10
 # 5 same as 4 plus ack waiting messages and builder messages
 MESSAGE_LOG_LEVEL = 3
 
-# prefix and siffix filters are OR'd
-KeywordColour = namedtuple(
-    "KeywordColour", "keyword prefix_filter suffix_filter colour"
-)
-
-KEYWORD_COLORS = [
-    # Alarm
-    KeywordColour(ConnectionName.ALARM, ["->", "<< "], ["->"], Colour.green),
-    KeywordColour(ConnectionName.ALARM_MONITOR, ["->", "<< "], ["->"], Colour.purple),
-    KeywordColour(ConnectionName.VISONIC, ["->", "<< "], ["->"], Colour.yellow),
-    KeywordColour(ConnectionName.CM, ["->", "<< "], ["->"], Colour.blue),
-]
-
 
 class Config:
     """Config settings."""
 
     PROXY_MODE = True
+
+    MONITOR_SERVER_TYPE = "websockets"  # options are tcp or websockets
 
     VISONIC_HOST = "52.58.105.181"
     MESSAGE_PORT = 5001
@@ -75,3 +63,103 @@ ADM_CID = "*ADM-CID"
 ADM_ACK = "*ACK"
 DUH = "DUH"
 NAK = "NAK"
+
+
+class Mode(StrEnum):
+    """Mode setting."""
+
+    STEALTH = "stealth"
+    DOWNLOAD = "download"
+
+
+class ManagerStatus(StrEnum):
+    """Connection manager status enum."""
+
+    STOPPED = "stopped"
+    STARTING = "starting"
+    RUNNING = "running"
+    CLOSING = "closing"
+
+
+class ConnectionType(StrEnum):
+    """Connection Type enum."""
+
+    CLIENT = "client"
+    SERVER = "server"
+
+
+class ConnectionName(StrEnum):
+    """Connection name enum."""
+
+    CM = "ConnMgr"
+    ALARM = "Alarm"
+    VISONIC = "Visonic"
+    ALARM_MONITOR = "HASS"
+
+
+class ConnectionPriority(IntEnum):
+    """Message priority for source."""
+
+    CM = 3
+    ALARM = 1
+    VISONIC = 2
+    ALARM_MONITOR = 3
+
+
+class ConnectionStatus(IntEnum):
+    """Connection status."""
+
+    CONNECTING = 0
+    CONNECTED = 1
+    DISCONNECTING = 2
+
+
+class ManagedMessages(StrEnum):
+    """Messages that get handled in some way."""
+
+    PL_ACK = "0d 02 43 ba 0a"
+    ACK = "0d 02 fd 0a"
+    DISCONNECT_MESSAGE = "0d ad 0a 00 00 00 00 00 00 00 00 00 43 05 0a"
+    HELLO = "0d 06 f9 0a"
+    KEEPALIVE = "0d b0 01 6a 00 43 a0 0a"
+    DOWNLOAD = "0d 09 f6 0a"  # Alarm does ACK
+    STOP = "0d 0b f4 0a"  # Alarm doesnt ACK
+    EXIT_DOWNLOAD_MODE = "0d 0f f0 0a"  # Alarm does ACK
+    # Don't really know what this is but alarm sends when HA send a STOP
+    # message.
+    OUT_OF_DOWNLOAD_MODE = "0d 08 f7 0a"
+
+
+class MsgLogLevel:
+    """Message log level."""
+
+    L1 = {"msglevel": 1}
+    L2 = {"msglevel": 2}
+    L3 = {"msglevel": 3}
+    L4 = {"msglevel": 4}
+    L5 = {"msglevel": 5}
+
+
+class Colour:
+    """Logging colours."""
+
+    green = "\x1b[1;32m"
+    blue = "\x1b[1;36m"
+    grey = "\x1b[1;38m"
+    yellow = "\x1b[1;33m"
+    red = "\x1b[1;31m"
+    purple = "\x1b[1;35m"
+    reset = "\x1b[0m"
+
+
+# prefix and siffix filters are OR'd
+KeywordColour = namedtuple(
+    "KeywordColour", "keyword prefix_filter suffix_filter colour"
+)
+
+KEYWORD_COLORS = [
+    KeywordColour(ConnectionName.ALARM, ["->", "<< "], ["->"], Colour.green),
+    KeywordColour(ConnectionName.ALARM_MONITOR, ["->", "<< "], ["->"], Colour.purple),
+    KeywordColour(ConnectionName.VISONIC, ["->", "<< "], ["->"], Colour.yellow),
+    KeywordColour(ConnectionName.CM, ["->", "<< "], ["->"], Colour.blue),
+]

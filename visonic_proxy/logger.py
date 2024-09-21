@@ -10,8 +10,8 @@ from .const import (
     LOG_LEVEL,
     LOG_TO_FILE,
     MESSAGE_LOG_LEVEL,
+    Colour,
 )
-from .enums import Colour
 
 DEBUG_FORMAT = "%(asctime)s %(levelname)-8s %(fileline)-20s %(message)s"
 STD_FORMAT = "%(asctime)s %(levelname)-8s %(message)10s"

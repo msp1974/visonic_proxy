@@ -6,8 +6,8 @@ import datetime as dt
 from enum import StrEnum
 import logging
 
-from ..const import Config
-from ..enums import (
+from ..const import (
+    Config,
     ConnectionName,
     ConnectionPriority,
     ConnectionStatus,
@@ -15,7 +15,7 @@ from ..enums import (
     MsgLogLevel,
 )
 from ..events import ALL_CLIENTS, Event, EventType
-from ..flow_manager import FlowManager
+from ..managers.flow_manager import FlowManager
 from ..message import QueuedMessage
 from ..proxy import Proxy
 from .client import ClientConnection
@@ -166,7 +166,6 @@ class ConnectionManager:
             )
             return
 
-        # TODO: Change these to iterate over definitions from proxy.py
         self.servers[ConnectionName.ALARM] = ServerConnection(
             proxy=self.proxy,
             name=ConnectionName.ALARM,

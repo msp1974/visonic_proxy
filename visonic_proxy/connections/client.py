@@ -7,9 +7,7 @@ import logging
 from socket import AF_INET
 import traceback
 
-from visonic_proxy.enums import MsgLogLevel
-
-from ..const import VIS_ACK
+from ..const import VIS_ACK, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
 from ..proxy import Proxy

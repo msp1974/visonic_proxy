@@ -6,7 +6,7 @@ import contextlib
 import datetime as dt
 import logging
 
-from ..enums import ConnectionName, MsgLogLevel
+from ..const import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
 

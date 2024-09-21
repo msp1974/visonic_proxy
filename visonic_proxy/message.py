@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from .enums import ConnectionName
+from .const import ConnectionName
 from .transcoders.builder import NonPowerLink31Message
 from .transcoders.pl31_decoder import PowerLink31Message
 

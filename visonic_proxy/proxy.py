@@ -9,7 +9,7 @@ import datetime as dt
 import logging
 from typing import Any
 
-from .enums import ConnectionName, ConnectionPriority, ConnectionStatus
+from .const import ConnectionName, ConnectionPriority, ConnectionStatus
 from .events import Events
 
 _LOGGER = logging.getLogger(__name__)

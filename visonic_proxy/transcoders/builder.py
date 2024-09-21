@@ -3,12 +3,9 @@
 from dataclasses import dataclass
 import logging
 
-from visonic_proxy.enums import MsgLogLevel
-from visonic_proxy.proxy import Proxy
-
-from ..const import VIS_ACK, VIS_BBA
-from ..crc16 import Crc16Arc
-from ..enums import ManagedMessages
+from ..const import VIS_ACK, VIS_BBA, ManagedMessages, MsgLogLevel
+from ..helpers.crc16 import Crc16Arc
+from ..proxy import Proxy
 from .pl31_decoder import PowerLink31Message
 
 _LOGGER = logging.getLogger(__name__)

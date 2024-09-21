@@ -8,8 +8,7 @@ import itertools
 import logging
 from socket import AF_INET
 
-from ..const import VIS_ACK, Config
-from ..enums import ConnectionName, MsgLogLevel
+from ..const import VIS_ACK, Config, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
 from ..proxy import Proxy

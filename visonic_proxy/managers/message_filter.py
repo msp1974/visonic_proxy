@@ -1,6 +1,6 @@
 """Filters messages from Alarm Monitor to not be sent to Alarm."""
 
-from .const import Config
+from ..const import Config
 
 
 def is_filtered(data: bytes) -> bool:

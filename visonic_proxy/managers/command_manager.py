@@ -5,11 +5,10 @@ import logging
 
 from events import ALL_CLIENTS, Event, EventType
 
-from .const import Config
-from .enums import ConnectionName, Mode, MsgLogLevel
-from .message import RoutableMessage
-from .proxy import Proxy
-from .transcoders.builder import MessageBuilder
+from ..const import Config, ConnectionName, Mode, MsgLogLevel
+from ..message import RoutableMessage
+from ..proxy import Proxy
+from ..transcoders.builder import MessageBuilder
 
 _LOGGER = logging.getLogger(__name__)
 

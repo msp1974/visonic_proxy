@@ -4,9 +4,8 @@ import asyncio
 import logging
 
 from .connections.manager import ConnectionManager
-from .const import MESSAGE_LOG_LEVEL, Config
-from .enums import ConnectionName, ManagerStatus, MsgLogLevel
-from .message_router import MessageCoordinatorStatus
+from .const import MESSAGE_LOG_LEVEL, Config, ConnectionName, ManagerStatus, MsgLogLevel
+from .managers.message_router import MessageCoordinatorStatus
 from .proxy import Proxy
 
 _LOGGER = logging.getLogger(__name__)

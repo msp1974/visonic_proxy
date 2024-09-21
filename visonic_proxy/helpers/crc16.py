@@ -1,4 +1,4 @@
-"""CRC16ARC checksum creator."""
+"""CRC16ARC checksum creator."""  # noqa: INP001
 # Working example: http://pythonfiddle.com/crc-16-calculation
 
 import math

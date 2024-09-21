@@ -14,8 +14,7 @@ import time
 import requests
 import urllib3
 
-from ..const import Config
-from ..enums import ConnectionName, MsgLogLevel
+from ..const import Config, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
 

@@ -9,7 +9,7 @@ import logging
 import traceback
 from typing import Callable
 
-from visonic_proxy.enums import ConnectionName
+from visonic_proxy.const import ConnectionName
 
 ALL_CLIENTS = "all"
 
