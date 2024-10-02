@@ -173,7 +173,12 @@ class Clients:
     def count(self, name: ConnectionName) -> int:
         """Return count of clients by connection name."""
         try:
-            return len(list(self._clients[name]))
+            active_clients = [
+                c
+                for c in self.get_clients(name)
+                if c.status == ConnectionStatus.CONNECTED
+            ]
+            return len(active_clients)
         except KeyError:
             return 0
 

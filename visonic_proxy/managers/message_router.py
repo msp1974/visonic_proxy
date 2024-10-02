@@ -127,11 +127,21 @@ class MessageRouter:
         if message.source == ConnectionName.ALARM:
             # If we have no destination, ie we were not expecting it and from Alarm
             # If we are not in disconnected mode, send it to Visonic
-            if not message.destination and not self.proxy.status.disconnected_mode:
-                await self.forward_message(
-                    ConnectionName.VISONIC, message.source_client_id, message
-                )
-                return
+            if not message.destination:
+                if not self.proxy.status.disconnected_mode:
+                    await self.forward_message(
+                        ConnectionName.VISONIC, message.source_client_id, message
+                    )
+                    return
+                # If we are in disconnected mode, and monitor connected, send to monitor
+                if (
+                    self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0
+                    and message.message.msg_type != ADM_ACK
+                ):
+                    await self.forward_message(
+                        ConnectionName.ALARM_MONITOR, message.source_client_id, message
+                    )
+                    return
 
         # ---------------------------------------------------------------
         # VISONIC
@@ -274,7 +284,7 @@ class MessageRouter:
         ):
             # Alarm Monitor has requested to download EPROM.  Need to ask connection manager to
             # set stealth mode
-            if not self.proxy.status.stealth_mode:
+            if Config.DOWNLOAD_MODE_SETS_STEALTH and not self.proxy.status.stealth_mode:
                 _LOGGER.info("Entering download mode", extra=MsgLogLevel.L1)
                 self.proxy.events.fire_event(
                     Event(
@@ -288,7 +298,7 @@ class MessageRouter:
         if message.message.data == bytes.fromhex(ManagedMessages.EXIT_DOWNLOAD_MODE):
             # Alarm Monitor has requested to end downloading EPROM.  Need to ask connection manager to
             # unset stealth mode
-            if self.proxy.status.stealth_mode:
+            if Config.DOWNLOAD_MODE_SETS_STEALTH and self.proxy.status.stealth_mode:
                 _LOGGER.info("Exiting download mode", extra=MsgLogLevel.L1)
                 self.proxy.events.fire_event(
                     Event(

@@ -3,10 +3,10 @@
 from dataclasses import dataclass
 import logging
 
-from ..const import VIS_ACK, VIS_BBA, ManagedMessages, MsgLogLevel
 from ..helpers.crc16 import Crc16Arc
 from ..proxy import Proxy
 from .pl31_decoder import PowerLink31Message
+from .refs import VIS_ACK, VIS_BBA, ManagedMessages, MessageType
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,18 +93,17 @@ class MessageBuilder:
         """
         msg_type = VIS_BBA
 
-        _LOGGER.info(
-            "Message Builder Received - %s", msg.hex(" "), extra=MsgLogLevel.L5
-        )
+        _LOGGER.debug("Message Builder Received - %s", msg.hex(" "))
 
         if msg[:1] == b"\x0d" and msg[-1:] == b"\x0a":
             if msg[1:2] == b"\x02":
                 # Received ack message.  Use build_ack_message to ensure correct ACK type
                 # message = self.build_ack_message().data.hex(" ")
-                if msg == bytes.fromhex(ManagedMessages.ACK):
-                    message = ManagedMessages.PL_ACK
-                else:
-                    message = msg.hex(" ")
+                message = (
+                    ManagedMessages.PL_ACK
+                    if msg == bytes.fromhex(ManagedMessages.ACK)
+                    else msg.hex(" ")
+                )
                 msg_type = VIS_ACK
             else:
                 message = msg.hex(" ")
@@ -120,11 +119,10 @@ class MessageBuilder:
         else:
             message = self.build_std_request(msg)
 
+        _LOGGER.debug("Message Builder Returned: %s", message)
+
         data = bytes.fromhex(message)
         message_class = data[1:2].hex()
-
-        _LOGGER.info("Message Builder Returned: %s", message, extra=MsgLogLevel.L5)
-
         return NonPowerLink31Message(
             msg_type=msg_type, msg_id=0, message_class=message_class, data=data
         )
@@ -150,6 +148,34 @@ class MessageBuilder:
         msg += f" {checksum.hex()}"
 
         return f"0d {msg} 0a"
+
+    def build_b0_add_remove_message(
+        self, message_type: MessageType, cmd: str, code: str, data: bytes
+    ) -> NonPowerLink31Message:
+        """Build a b0 00 or b0 04 message.
+
+        data should be bytes and include all data after ff ie 01 03 02 00 01 for bits datatype, zone index, length 4, zones
+        """
+        msg_type = VIS_BBA
+        msg = "b0 04"
+        if message_type == MessageType.ADD:
+            msg = "b0 00"
+
+        length = len(data) + 2
+
+        code = bytes.fromhex(code).hex(" ")
+        # msg_data = f"{download_code} ff 01 03 08 {zone_data.hex(" ")}"
+        msg = f"b0 {"00" if message_type == MessageType.ADD else "04"} {cmd} {length:02x} {code} {data.hex(" ")} 43"
+
+        checksum = self._calculate_message_checksum(bytes.fromhex(msg))
+        msg += f" {checksum.hex()}"
+
+        message = f"0d {msg} 0a"
+        data = bytes.fromhex(message)
+        message_class = data[1:2].hex()
+        return NonPowerLink31Message(
+            msg_type=msg_type, msg_id=0, message_class=message_class, data=data
+        )
 
     def build_b0_request(self, command: str, params: str = "") -> str:
         """Build b0 message to alarm.
@@ -269,7 +295,7 @@ class MessageBuilder:
         0a [CRC16][Length][MSG TYPE][MSG ID]L[ACCT NO]#[ALARM SERIAL][COMMAND]\r
 
         0a 6BAF   001D    "VIS-BBA" 5564    L 001234  # 2A4CC3       [See standard or b0 below]0d
-         ie
+        ie
         0a 36 42 41 46 30 30 31 44 22 56 49 53 2d 41 43 4b 22 35 35 36 34 4c 30 23 32 41 34 43 43 33 5b 0d 02 43 ba 0a 5d 0d
         b'\n6BAF001D"VIS-ACK"5564L0#2A4CC3[\r\x02C\xba\n]\r'
 

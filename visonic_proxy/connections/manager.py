@@ -12,6 +12,7 @@ from ..const import (
     ConnectionPriority,
     ConnectionStatus,
     Mode,
+    MonitorType,
     MsgLogLevel,
 )
 from ..events import ALL_CLIENTS, Event, EventType
@@ -21,6 +22,7 @@ from ..proxy import Proxy
 from .client import ClientConnection
 from .server import ServerConnection
 from .webserver import Webserver
+from .websocket import WebsocketServer
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -104,9 +106,7 @@ class ConnectionManager:
         if not self.webserver_task:
             _LOGGER.info("Starting Webserver")
             self.webserver = Webserver(self.proxy)
-            self.webserver_task = self.proxy.loop.create_task(
-                self.webserver.start(), name="Webserver"
-            )
+            await self.webserver.start()
 
         self.status = ConnectionCoordinatorStatus.RUNNING
         _LOGGER.info("Connection Manager started")
@@ -125,15 +125,8 @@ class ConnectionManager:
         await self.flow_manager.stop()
 
         # Stop webserver
-        if self.webserver_task and not self.webserver_task.done():
-            _LOGGER.info("Stopping Webserver")
-            try:
-                await self.webserver.stop()
-                self.webserver_task.cancel()
-                while not self.webserver_task.done():
-                    await asyncio.sleep(0.01)
-            except Exception:  # pylint: disable=broad-exception-caught  # noqa: BLE001
-                pass
+        _LOGGER.info("Stopping Webserver")
+        await self.webserver.stop()
 
         # Stop clients
         for connection in self.proxy.clients.connections:
@@ -176,16 +169,29 @@ class ConnectionManager:
             run_watchdog=True,
             send_non_pl31_messages=False,
         )
-        self.servers[ConnectionName.ALARM_MONITOR] = ServerConnection(
-            proxy=self.proxy,
-            name=ConnectionName.ALARM_MONITOR,
-            host="0.0.0.0",
-            port=Config.ALARM_MONITOR_PORT,
-            data_received_callback=self.flow_manager.data_received,
-            run_keepalive=False,
-            run_watchdog=False,
-            send_non_pl31_messages=True,
-        )
+
+        # Start Alarm Monitor socket server
+        if Config.MONITOR_TYPE == MonitorType.IP_SOCKET:
+            self.servers[ConnectionName.ALARM_MONITOR] = ServerConnection(
+                proxy=self.proxy,
+                name=ConnectionName.ALARM_MONITOR,
+                host="0.0.0.0",
+                port=Config.ALARM_MONITOR_PORT,
+                data_received_callback=self.flow_manager.data_received,
+                run_keepalive=False,
+                run_watchdog=False,
+                send_non_pl31_messages=True,
+            )
+
+        # Start websocket server
+        if Config.MONITOR_TYPE == MonitorType.WEBSOCKET:
+            self.servers[ConnectionName.ALARM_MONITOR] = WebsocketServer(
+                proxy=self.proxy,
+                name=ConnectionName.ALARM_MONITOR,
+                host="0.0.0.0",
+                port=Config.WEBSOCKET_PORT,
+                data_received_callback=self.flow_manager.data_received,
+            )
 
         for server in self.servers.values():
             await server.start_listening()
@@ -230,18 +236,19 @@ class ConnectionManager:
             send_non_pl31_messages=False,
         )
 
-        self.set_disconnected_mode(False)
-
-        await client.connect()
+        self.proxy.loop.create_task(client.connect())
 
     async def stop_client_connection(self, client_id: int):
         """Terminate a client connection."""
         if connection_info := self.proxy.clients.get_client(
             ConnectionName.VISONIC, client_id
         ):
-            connection: ClientConnection | ServerConnection = connection_info.connection
-            if connection.connected:
-                await connection.shutdown()
+            if connection_info.status == ConnectionStatus.CONNECTED:
+                connection: ClientConnection | ServerConnection = (
+                    connection_info.connection
+                )
+                if connection.connected:
+                    await connection.shutdown()
 
             self.proxy.clients.remove(ConnectionName.VISONIC, client_id)
 

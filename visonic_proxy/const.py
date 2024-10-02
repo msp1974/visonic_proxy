@@ -16,16 +16,24 @@ LOG_FILES_TO_KEEP = 10
 MESSAGE_LOG_LEVEL = 3
 
 
+class MonitorType(StrEnum):
+    """Monitor type setting."""
+
+    IP_SOCKET = "socket"
+    WEBSOCKET = "websocket"
+
+
 class Config:
     """Config settings."""
 
     PROXY_MODE = True
 
-    MONITOR_SERVER_TYPE = "websockets"  # options are tcp or websockets
+    MONITOR_TYPE = MonitorType.IP_SOCKET
 
     VISONIC_HOST = "52.58.105.181"
     MESSAGE_PORT = 5001
     ALARM_MONITOR_PORT = 5002
+    WEBSOCKET_PORT = 8082
 
     VISONIC_RECONNECT_INTERVAL = 10  # Freq CM will reconnect Visonic after disconnect
     KEEPALIVE_TIMER = 32  # Send Keepalive if no messages in 30 seconds
@@ -34,6 +42,10 @@ class Config:
 
     STEALTH_MODE_TIMEOUT = (
         10  # If no received message from Monitor connection, timeout stealth mode.
+    )
+
+    DOWNLOAD_MODE_SETS_STEALTH = (
+        True  # If monitor asks for download mode, set stealth too.  Reverse true
     )
 
     ALARM_MONITOR_SENDS_ACKS = True  # Monitor sends ACKS
