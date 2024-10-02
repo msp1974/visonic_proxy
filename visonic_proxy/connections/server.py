@@ -321,9 +321,10 @@ class ServerConnection:
         """
 
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(5)
             if self.disconnected_mode:
-                for client_id, client in self.clients.items():
+                clients = self.clients.items()
+                for client_id, client in clients:
                     if (
                         client.last_received_message
                         and (
@@ -335,4 +336,3 @@ class ServerConnection:
                         self.proxy.events.fire_event(
                             Event(self.name, EventType.SEND_KEEPALIVE, client_id)
                         )
-                        await asyncio.sleep(5)

@@ -7,6 +7,8 @@ import logging
 from socket import AF_INET
 import traceback
 
+from urllib3.exceptions import ConnectTimeoutError
+
 from ..const import VIS_ACK, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
@@ -55,7 +57,7 @@ class ClientConnection:
 
         self.unsubscribe_listeners: list[Callable] = []
 
-    async def connect(self):
+    async def connect(self) -> bool:
         """Initiate connection to host."""
 
         _LOGGER.info(
@@ -66,18 +68,20 @@ class ClientConnection:
         )
 
         self.connection_in_progress = True
-
-        self.transport, self.protocol = await self.proxy.loop.create_connection(
-            lambda: ConnectionProtocol(
-                self.name,
-                self.connection_made,
-                self.disconnected,
-                self.data_received,
-            ),
-            self.host,
-            self.port,
-            family=AF_INET,
-        )
+        try:
+            self.transport, self.protocol = await self.proxy.loop.create_connection(
+                lambda: ConnectionProtocol(
+                    self.name,
+                    self.connection_made,
+                    self.disconnected,
+                    self.data_received,
+                ),
+                self.host,
+                self.port,
+                family=AF_INET,
+            )
+        except (OSError, ConnectTimeoutError) as ex:
+            _LOGGER.warning("Error connecting to %s. %s", self.name, ex)
 
     def connection_made(self, transport: asyncio.Transport):
         """Handle connection made callback."""
