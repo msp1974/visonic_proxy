@@ -4,11 +4,9 @@ Responds to POST reqest with simple response.
 """
 
 import asyncio
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import contextlib
 import json
 import logging
-import os
-from ssl import PROTOCOL_TLS_SERVER, SSLContext
 import time
 
 import requests
@@ -17,215 +15,177 @@ import urllib3
 from ..const import Config, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
+from .httpserver.server import HttpServer, uri_pattern_mapping
+from .httpserver.utils import HttpHeaders, HttpRequest, HttpResponse
 
 urllib3.disable_warnings()
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class WebResponseController:
-    """Class for webresponse control."""
+class Connect:
+    """Class to hold request connect."""
 
-    loop: asyncio.AbstractEventLoop = None
-    proxy: Proxy = None
-    request_connect: bool = True  # Set to True for startup to make Alarm connect
+    request_connect: bool = True
 
 
-class RequestHandler(BaseHTTPRequestHandler):
-    """HTTP handler."""
+class MyHandler:
+    """Webserver handler."""
 
-    def log_message(self, *args):
-        """Override log messages."""
+    def __init__(self, proxy: Proxy, request_connect: bool):
+        """Initialise."""
+        self.proxy = proxy
 
-    def do_GET(self):  # pylint: disable=invalid-name
-        """Handle GET request."""
-        _LOGGER.debug(
-            "%s: %s\n%s\n%s",
-            self.command,
-            self.path,
-            self.headers,
-            self.request,
-        )
-
-    def do_POST(self):  # pylint: disable=invalid-name
-        """Handle POST request."""
-
-        content_len = int(self.headers.get("Content-Length"))
+    async def forward_request(self, request: HttpRequest) -> requests.Response:
+        """Forward request and return response."""
         try:
-            post_body = self.rfile.read(content_len)
-        except Exception:  # noqa: BLE001
-            post_body = b""
+            s = requests.Session()
+            return s.post(
+                f"https://{Config.VISONIC_HOST}:8443{request.path}",
+                params=request.query_params,
+                headers=request.headers,
+                data=request.body,
+                verify=False,
+                timeout=2,
+            )
+        except (TimeoutError, requests.exceptions.ReadTimeout, OSError) as ex:
+            _LOGGER.warning(
+                "HTTP connection timed out error sending to Visonic. %s", ex
+            )
+            return None
 
-        _LOGGER.debug(
-            "\x1b[1;36mAlarm HTTPS ->\x1b[0m %s",
-            post_body.decode().replace("\n", ""),
-        )
+    @uri_pattern_mapping("(.*?)", "POST")
+    async def default(self, request: HttpRequest):
+        """Handle default post handler."""
+        _LOGGER.info("WEB REQUEST: %s", request, extra=MsgLogLevel.L5)
 
-        self.send_response(200)
+        if request.path == "/scripts/update.php":
+            if Config.PROXY_MODE:
+                if res := await self.forward_request(request):
+                    try:
+                        response: dict = res.json()
+                        if cmds := response.get("cmds"):
+                            for command in cmds:
+                                if command.get("name") == "connect":
+                                    # fire event
+                                    _LOGGER.info(
+                                        "Received web connection request",
+                                        extra=MsgLogLevel.L1,
+                                    )
+                                    event = Event(
+                                        ConnectionName.VISONIC,
+                                        EventType.REQUEST_CONNECT,
+                                    )
+                                    self.proxy.events.fire_event(event)
+                    except requests.exceptions.JSONDecodeError:
+                        _LOGGER.info("cannot decode response")
+                        response = {}
 
-        if Config.PROXY_MODE:
-            try:
-                headers = {}
-                headers["Content-Type"] = "application/x-www-form-urlencoded"
-                headers["Connection"] = "keep-alive"
-                s = requests.Session()
-                res = s.post(
-                    f"https://{Config.VISONIC_HOST}:8443{self.path}",
-                    headers=headers,
-                    data=post_body,
-                    verify=False,
-                    timeout=5,
-                )
+                    if Connect.request_connect:
+                        resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
+                    else:
+                        resp = res.content
 
-                # Check if Visonic asking for connection and fire request connection event
-                try:
-                    response: dict = res.json()
-                    if cmds := response.get("cmds"):
-                        for command in cmds:
-                            if command.get("name") == "connect":
-                                # fire event
-                                _LOGGER.info(
-                                    "Received web connection request",
-                                    extra=MsgLogLevel.L1,
-                                )
-                                event = Event(
-                                    ConnectionName.VISONIC,
-                                    EventType.REQUEST_CONNECT,
-                                )
-                                WebResponseController.proxy.events.fire_event(event)
-                except requests.exceptions.JSONDecodeError:
-                    _LOGGER.info("cannot decode response")
-                    response = {}
-
-                if WebResponseController.request_connect:
                     _LOGGER.info(
-                        "Webserver sent request to connect", extra=MsgLogLevel.L1
+                        "\x1b[1;36mVisonic HTTPS ->\x1b[0m %s",
+                        resp.decode().replace("\n", ""),
+                        extra=MsgLogLevel.L5,
                     )
-                    resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
-                else:
-                    resp = res.content
 
-                _LOGGER.debug(
-                    "\x1b[1;36mVisonic HTTPS ->\x1b[0m %s",
-                    resp.decode().replace("\n", ""),
-                )
-
-                if not self.wfile.closed:
+                    headers = HttpHeaders()
                     for k, v in res.headers.items():
                         if k == "Content-Length":
                             # Ajust content length if we have added connect command
-                            self.send_header(k, len(resp))
+                            headers.add(k, len(resp))
                         else:
-                            self.send_header(k, v)
-                    self.end_headers()
-                    self.wfile.write(resp)
-                    self.wfile.flush()
-            except (TimeoutError, requests.exceptions.ReadTimeout, OSError) as ex:
-                _LOGGER.warning(
-                    "HTTP connection timed out error sending to Visonic. %s", ex
-                )
-        else:
-            try:
-                if not self.wfile.closed:
-                    resp = {}
-                    if WebResponseController.request_connect:
-                        resp["cmds"] = [{"name": "connect", "params": {"port": 5001}}]
+                            headers.add(k, v)
+                    return HttpResponse(200, headers, resp)
+                await self.send_man_response()
 
-                    resp.update({"ka_time": 10, "version": 3})
-                    response = json.dumps(resp)
-                    bin_resp = bytes(f"{response}\n", "ascii")
+            else:
+                await self.send_man_response()
 
-                    _LOGGER.debug(
-                        "\x1b[1;36mCM HTTPS ->\x1b[0m %s",
-                        resp,
-                    )
+    async def send_man_response(self):
+        """Send constgructed response."""
+        try:
+            resp = {}
+            if Connect.request_connect:
+                _LOGGER.info("Webserver sent request to connect", extra=MsgLogLevel.L1)
+                resp["cmds"] = [{"name": "connect", "params": {"port": 5001}}]
 
-                    self.send_header(
-                        "Date",
-                        time.strftime("%a, %d %b %Y %H:%M:%S %Z", time.gmtime()),
-                    )
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", len(bin_resp))
-                    self.send_header("Connection", "keep-alive")
-                    self.send_header(
-                        "Content-Security-Policy",
-                        "default-src 'self'; frame-src 'self' https://*.google.com; style-src 'self' 'unsafe-inline' https://*.googleapis.com; font-src 'self' data: https:; connect-src 'self' ws://52.58.105.181 wss://52.58.105.181 https://*.google.com https://*.googleapis.com; script-src 'self' https://*.google.com https://*.googleapis.com 'unsafe-inline' 'unsafe-eval'; img-src 'self' https://*.google.com https://*.googleapis.com data: https://*.gstatic.com https://*.google.com",
-                    )
-                    self.send_header("Strict-Transport-Security", "max-age=31536000")
-                    self.send_header("X-Content-Type-Options", "nosniff")
-                    self.send_header("X-Frame-Options", "SAMEORIGIN")
-                    self.send_header("X-XSS-Protection", "1; mode=block")
-                    self.end_headers()
-                    self.wfile.write(bin_resp)
-                    self.wfile.flush()
-            except (TimeoutError, OSError) as ex:
-                _LOGGER.warning("HTTP connection timed out sending to panel.  %s", ex)
+            resp.update({"ka_time": 10, "version": 3})
+            response = json.dumps(resp)
+            _LOGGER.info("Response: %s", response, extra=MsgLogLevel.L1)
+            bin_resp = bytes(f"{response}\n", "ascii")
+
+            _LOGGER.info("\x1b[1;36mCM HTTPS ->\x1b[0m %s", resp, extra=MsgLogLevel.L5)
+
+            headers = HttpHeaders()
+
+            headers.add(
+                "Date",
+                time.strftime("%a, %d %b %Y %H:%M:%S %Z", time.gmtime()),
+            )
+            headers.add("Content-Type", "application/json")
+            headers.add("Content-Length", len(bin_resp))
+            headers.add("Connection", "keep-alive")
+            headers.add(
+                "Content-Security-Policy",
+                "default-src 'self'; frame-src 'self' https://*.google.com; style-src 'self' 'unsafe-inline' https://*.googleapis.com; font-src 'self' data: https:; connect-src 'self' ws://52.58.105.181 wss://52.58.105.181 https://*.google.com https://*.googleapis.com; script-src 'self' https://*.google.com https://*.googleapis.com 'unsafe-inline' 'unsafe-eval'; img-src 'self' https://*.google.com https://*.googleapis.com data: https://*.gstatic.com https://*.google.com",
+            )
+            headers.add("Strict-Transport-Security", "max-age=31536000")
+            headers.add("X-Content-Type-Options", "nosniff")
+            headers.add("X-Frame-Options", "SAMEORIGIN")
+            headers.add("X-XSS-Protection", "1; mode=block")
+            return HttpResponse(200, headers, bin_resp)
+        except (TimeoutError, OSError) as ex:
+            _LOGGER.warning("HTTP connection timed out sending to panel.  %s", ex)
 
 
 class Webserver:
-    """Threaded web server."""
+    """Ayncio web server."""
 
     def __init__(self, proxy: Proxy):
         """Init."""
         self.proxy = proxy
         self.host = "0.0.0.0"
         self.port = 8443
-        self.server: HTTPServer = None
+        self.http_server = HttpServer()
         self.running: bool = True
+        self.server_task: asyncio.Task
+
+        self.request_connect: bool = True
 
     def set_request_to_connect(self):
         """Set response to http request to connect."""
-        WebResponseController.request_connect = True
+        Connect.request_connect = True
 
     def unset_request_to_connect(self):
         """Unset response to http request to connect."""
-        WebResponseController.request_connect = False
+        Connect.request_connect = False
 
-    def _webserver(self, loop: asyncio.AbstractEventLoop):
+    async def _webserver(self):
         """Start webserver."""
-        try:
-            # Set loop
-            WebResponseController.loop = loop
-            WebResponseController.proxy = self.proxy
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-            ssl_context = SSLContext(PROTOCOL_TLS_SERVER)
-            ssl_context.load_cert_chain(
-                dir_path + "/certs/cert.pem",
-                dir_path + "/certs/private.key",
-            )
-            # self.host = get_ip()
-            self.server = HTTPServer((self.host, self.port), RequestHandler)
-            self.server.socket = ssl_context.wrap_socket(
-                self.server.socket, server_side=True
-            )
-
-            _LOGGER.info(
-                "Webserver listening on %s port %s",
-                self.host,
-                self.port,
-            )
-        except (OSError, Exception) as ex:
-            _LOGGER.error(
-                "Unable to start webserver. Error is %s", ex, log_level=logging.ERROR
-            )
-        else:
-            while self.running:
-                self.server.handle_request()
+        self.http_server.add_handler(MyHandler(self.proxy, self.request_connect))
+        # start the server and serve/wait forever
+        await self.http_server.start(self.host, self.port)
+        with contextlib.suppress(RuntimeError):
+            await self.http_server.serve_forever()
 
     async def start(self):
         """Start webserver."""
-        await self.proxy.loop.run_in_executor(None, self._webserver, self.proxy.loop)
-        _LOGGER.info("Webserver stopped")
+        self.server_task = self.proxy.loop.create_task(
+            self._webserver(), name="WebServer"
+        )
+        self.running = True
+        _LOGGER.info("Webserver listening on %s port %s", self.host, self.port)
 
     async def stop(self):
         """Stop webserver."""
-        self.running = False
-        try:
-            requests.request(
-                "QUIT", f"https://{self.host}:{self.port}", verify=False, timeout=5
-            )
-        except TimeoutError as ex:
-            _LOGGER.warning("HTTP connection timed out sending to self.  %s", ex)
+        with contextlib.suppress(RuntimeError):
+            await self.http_server.close()
 
-        self.server.socket.close()
-        self.server.server_close()
+        if self.server_task and not self.server_task.done():
+            self.server_task.cancel()
+        self.running = False
+        _LOGGER.info("Webserver stopped")
