@@ -185,8 +185,7 @@ class CommandManager:
         value = message.message.data[3:4].hex()
 
         if command == "01":  # Send status
-            if self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0:
-                await self.send_status_message()
+            await self.send_status_message()
         elif command == "02":  # Enable/Disable stealth mode
             self.proxy.events.fire_event(
                 Event(
