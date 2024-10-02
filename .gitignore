@@ -78,4 +78,6 @@ venv.bak/
 .vscode
 
 message.log*
+cert.pem
+private.key
 

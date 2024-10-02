@@ -9,6 +9,7 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
+from visonic_proxy.connections.httpserver.make_certs import cert_gen  # noqa: E402
 from visonic_proxy.const import LOG_TO_FILE  # noqa: E402
 from visonic_proxy.logger import _LOGGER, rollover  # noqa: E402
 from visonic_proxy.runner import VisonicProxy  # noqa: E402
@@ -16,11 +17,18 @@ from visonic_proxy.runner import VisonicProxy  # noqa: E402
 
 def validate_certs():
     """Validate certificate files."""
-    if os.path.isfile("./connections/certs/cert.pem") and os.path.isfile(
-        "./connections/certs/private.key"
+    if os.path.isfile("./connections/httpserver/certs/cert.pem") and os.path.isfile(
+        "./connections/httpserver/certs/private.key"
     ):
         return True
-    return False
+
+    # Generate certs
+    _LOGGER.info("Generating webserver certificates")
+    try:
+        cert_gen(path="./connections/httpserver/certs/")
+        return True  # noqa: TRY300
+    except Exception:  # noqa: BLE001
+        return False
 
 
 if __name__ == "__main__":
