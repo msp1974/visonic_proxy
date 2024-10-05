@@ -46,24 +46,37 @@ from ..transcoders.standard_message import STDMessage, STDMessageDecoder
 SEND_WEBSOCKET_STATUS_EVENT = "send_websocket_status"
 
 INIT_STATUSES = [
-    "24",
-    "13",
-    "19",
-    "1f",
-    "20",
-    "21",
-    "27",
-    "2d",
-    "3d",
-    "40",
-    "4b",
-    "54",
-    "58",
-    "77",
+    B0CommandName.PANEL_STATUS,
+    B0CommandName.TRIGGERED_ZONE,
+    B0CommandName.BYPASSES,
+    B0CommandName.DEVICE_TYPES,
+    B0CommandName.TAMPER_ACTIVES,
+    B0CommandName.TAMPER_ALERTS,
+    B0CommandName.ASSIGNED_PARTITION,
+    B0CommandName.ASSIGNED_NAMES,
+    B0CommandName.WIRED_DEVICES_STATUS,
+    B0CommandName.ASSIGNED_ZONE_TYPES,
+    B0CommandName.ZONE_LAST_EVENT,
+    B0CommandName.TROUBLES,
+    B0CommandName.DEVICE_INFO,
+    B0CommandName.ZONE_TEMPS,
+    B0CommandName.ZONE_BRIGHTNESS,
 ]
-INIT_SETTINGS = [2, 8, 13, 15, 36, 40, 45, 48, 51, 60, 277]
+INIT_SETTINGS = [
+    Command35Settings.PANEL_SERIAL_NO,
+    Command35Settings.USER_CODES,
+    Command35Settings.ZONE_NAMES,
+    Command35Settings.DOWNLOAD_CODE,
+    Command35Settings.PANEL_EPROM_VERSION,
+    Command35Settings.CAPABILITIES,
+    Command35Settings.PANEL_SOFTWARE_VERSION,
+    Command35Settings.PARTITIONS_ENABLED,
+    Command35Settings.ZONE_CHIME,
+    Command35Settings.PANEL_HARDWARE_VERSION,
+    Command35Settings.POWERLINK_SW_VERSION,
+]
 
-RESPOND_MESSAGES = ["51"]
+RESPOND_MESSAGES = [B0CommandName.ASK_ME]
 
 STATUS = "status"
 SETTINGS = "settings"
@@ -130,7 +143,7 @@ class WebsocketServer:
                 ConnectionName.ALARM_MONITOR,
                 SEND_WEBSOCKET_STATUS_EVENT,
                 self.send_status,
-            )
+            ),
         ]
 
         self.server_stop = self.proxy.loop.create_future()
@@ -146,8 +159,8 @@ class WebsocketServer:
         for unsub in self._unsubscribe_listeners:
             unsub()
 
-        for websocket in self.websockets.values():
-            await websocket.close_transport()
+        # for websocket in self.websockets.values():
+        #    await websocket.close_transport()
         if self.send_processor_task and not self.send_processor_task.done():
             self.send_processor_task.cancel()
 
@@ -238,7 +251,11 @@ class WebsocketServer:
         result = None
         send_status = False
         if request := msg.get("request"):
-            if self.visonic_client.is_init:
+            if request == "status":
+                result = await self.visonic_client.get_panel_status(
+                    refresh_key_data=True
+                )
+            elif self.visonic_client.is_init:
                 if request in ["turn_on", "turn_off"]:
                     dev_item = msg.get("type")
                     if dev_item == "bypass":
@@ -261,10 +278,51 @@ class WebsocketServer:
                                 result = msg
                                 send_status = False
 
-                elif request == "status":
-                    result = await self.visonic_client.get_panel_status(
-                        refresh_key_data=True
-                    )
+                elif request == "command":
+                    cmd = msg.get("cmd")
+                    if cmd is not None and cmd not in [
+                        "06",
+                        "0f",
+                        "17",
+                        "35",
+                        "42",
+                        "51",
+                        "6a",
+                    ]:
+                        cmd_name = get_lookup_value(B0CommandName, cmd)
+                        response = await self.visonic_client.get_status(
+                            cmd, refresh=True
+                        )
+                        result = {
+                            "command": cmd,
+                            "name": cmd_name,
+                            "result": response,
+                        }
+                    else:
+                        result = {
+                            "error": "invalid request",
+                            "message": "Either command not supplied or an invalid command provided",
+                        }
+                elif request == "setting":
+                    setting = msg.get("setting")
+                    if setting is not None and setting not in [83, 413]:
+                        setting_name = get_lookup_value(Command35Settings, setting)
+                        response = await self.visonic_client.get_setting(
+                            setting, refresh=True
+                        )
+                        result = {
+                            "setting": setting,
+                            "name": setting_name,
+                            "result": response,
+                        }
+                    else:
+                        result = {
+                            "error": "invalid request",
+                            "message": "Either setting not supplied or an invalid setting provided",
+                        }
+
+                elif request == "all_statuses":
+                    result = await self.visonic_client.download_all_statuses()
 
                 elif request == "all_settings":
                     result = await self.visonic_client.download_all_settings()
@@ -276,6 +334,8 @@ class WebsocketServer:
                         response = await self.visonic_client.arming(partition, state)
                         if response:
                             result = {"request": "arm", "result": "success"}
+                        else:
+                            result = {"request": "arm", "result": "failed"}
                 else:
                     result = json.dumps(
                         {
@@ -295,8 +355,13 @@ class WebsocketServer:
 
     async def send_status(self, event: Event):
         """Send status message."""
+        refresh_key_data = True
+
+        if event.event_data:
+            refresh_key_data = event.event_data.get("refresh", True)
+
         status = await self.visonic_client.get_panel_status(
-            refresh_key_data=event.event_data.get("refresh", True)
+            refresh_key_data=refresh_key_data
         )
         await self.broadcast(status)
 
@@ -441,12 +506,12 @@ class VisonicClient:
                 await self.schedule_status_update(1, False)
                 break
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(1)
 
     @property
     def is_quiet(self) -> bool:
         """Return if more than 5 secs since last message."""
-        return (dt.datetime.now() - self.last_received).total_seconds() > 2
+        return (dt.datetime.now() - self.last_received).total_seconds() > 3
 
     def register_received_message(self, cmd: str, setting: int | None = None):
         """Register received message and remove from wait list."""
@@ -498,7 +563,7 @@ class VisonicClient:
             stealth = data[6] == 1
             download = data[7] == 1
 
-            self.cm_status = CMStatus(
+            cm_status = CMStatus(
                 alarm_connections=data[2],
                 visonic_connections=data[3],
                 monitor_connections=data[4],
@@ -507,14 +572,14 @@ class VisonicClient:
                 download_mode=download,
             )
 
-            _LOGGER.info("STATUS: %s", self.cm_status)
+            _LOGGER.info("STATUS: %s", cm_status)
             # Set stealth mode event for anything waiting on it
             if stealth:
                 self.stealth_mode.set()
             elif self.stealth_mode.is_set():
                 self.stealth_mode.clear()
 
-            self.proxy.loop.create_task(self.process_message("e0", self.cm_status))
+            self.proxy.loop.create_task(self.process_message("e0", cm_status))
 
         else:
             # Process std message and store data.
@@ -523,12 +588,14 @@ class VisonicClient:
             self.register_received_message(dec.cmd)
             self.proxy.loop.create_task(self.process_message("std", dec))
 
-    async def process_message(self, message_class: str, dec: B0Message | STDMessage):
+    async def process_message(
+        self, message_class: str, dec: B0Message | STDMessage | CMStatus
+    ):
         """Process received message from socket client."""
         data_changed = False
         if message_class == MessageClass.STD and dec.cmd == "3f":
             self.datastore.store_eprom(dec.start, dec.data)
-        if message_class == MessageClass.B0:
+        elif message_class == MessageClass.B0:
             if dec.cmd in [B0CommandName.SETTINGS_35, B0CommandName.SETTINGS_42]:
                 data_changed = self.datastore.store(
                     SETTINGS,
@@ -570,7 +637,7 @@ class VisonicClient:
                     )
 
             # Response to a 51 message
-            if dec.cmd == B0CommandName.ASK_ME and dec.data:
+            if dec.cmd in [B0CommandName.ASK_ME, B0CommandName.ASK_ME2] and dec.data:
                 await asyncio.sleep(0.2)
                 for cmd in dec.data:
                     msg = self.message_builder.message_preprocessor(
@@ -578,9 +645,24 @@ class VisonicClient:
                     )
                     self.send_message_no_wait(msg.data, [cmd])
 
+        elif message_class == MessageClass.E0:
+            # Connection change message.
+            # Send status update if alarm changes
+
+            prev_alarm_connections = self.cm_status.alarm_connections
+            self.cm_status = dec
+            if self.cm_status.alarm_connections != prev_alarm_connections:
+                result = await self.get_panel_status(refresh_key_data=False)
+                await self.cb_send_ws_message(result)
+
         # if data has changed, send status message to websocket clients.
         if (
-            data_changed
+            (
+                message_class == MessageClass.B0
+                and dec.msg_type != MessageType.PAGED_RESPONSE
+                or message_class != MessageClass.B0
+            )
+            and data_changed
             and self.is_init
             and not self.request_in_progress
             and (dec.setting in INIT_SETTINGS or dec.cmd in INIT_STATUSES)
@@ -860,6 +942,8 @@ class VisonicClient:
         ]
         await self.download_statuses(statuses)
 
+        return self.datastore.get_all_data()
+
     async def download_all_settings(self, known_only: bool = True):
         """Count to 441 and request all settings."""
         ignore_list = [83, 413]
@@ -873,7 +957,7 @@ class VisonicClient:
         else:
             settings = [setting for setting in range(441) if setting not in ignore_list]
 
-        await self.download_settings(settings)
+        await self.download_settings(settings, set_stealth=True)
 
         return self.datastore.get_all_data()
 
@@ -910,17 +994,12 @@ class VisonicClient:
 
     async def get_panel_status(self, refresh_key_data: bool = False):
         """Get current panel status."""
-        self.request_in_progress = True
         start = dt.datetime.now()
 
-        result = await self.get_panel_info(
-            json_encode=False, refresh_key_data=refresh_key_data
-        )
-        end = dt.datetime.now()
         output = {
             "version": __VERSION__,
-            "time_taken": round((end - start).total_seconds(), 3),
-            "datetime": end.strftime("%Y-%m-%d %H:%M:%S"),
+            "time_taken": 0,
+            "datetime": 0,
             "connections": {
                 "alarm": self.cm_status.alarm_connections,
                 "visonic": self.cm_status.visonic_connections,
@@ -931,9 +1010,19 @@ class VisonicClient:
                 "download": self.cm_status.download_mode,
             },
         }
-        output.update(result)
-        self.is_init = True
-        self.request_in_progress = False
+
+        if self.is_init:
+            self.request_in_progress = True
+            result = await self.get_panel_info(
+                json_encode=False, refresh_key_data=refresh_key_data
+            )
+            self.request_in_progress = False
+            output.update(result)
+        end = dt.datetime.now()
+
+        output["time_taken"] = round((end - start).total_seconds(), 3)
+        output["datetime"] = end.strftime("%Y-%m-%d %H:%M:%S")
+
         return json.dumps(output, indent=2)
 
     async def get_panel_info(
@@ -1042,6 +1131,8 @@ class VisonicClient:
         device_types = await self.get_status(B0CommandName.DEVICE_TYPES)
         pgm_status = await self.get_status(B0CommandName.WIRED_DEVICES_STATUS, "pgm")
         partitions = await self.get_status(B0CommandName.ASSIGNED_PARTITION)
+        tamper_actives = await self.get_status(B0CommandName.TAMPER_ACTIVES)
+        tamper_alerts = await self.get_status(B0CommandName.TAMPER_ALERTS)
 
         for dev_type, dev in sorted(enrolled_devices.items()):
             if dev_type == "zones":
@@ -1067,6 +1158,8 @@ class VisonicClient:
                                 i["device_model"] = SENSOR_TYPES[dev_type][
                                     device_type_id
                                 ].name
+                                i["active_tamper"] = tamper_actives[dev_type][d] == 1
+                                i["tamper_alert"] = tamper_alerts[dev_type][d] == 1
                             except KeyError:
                                 i["device_type"] = dev_type.title()
                                 i["device_model"] = (
@@ -1128,6 +1221,9 @@ class VisonicClient:
             chunk_bytearray(bytes.fromhex(zda_data), 2) if zda_data else None
         )
 
+        tamper_actives = await self.get_status(B0CommandName.TAMPER_ACTIVES, "zones")
+        tamper_alerts = await self.get_status(B0CommandName.TAMPER_ALERTS, "zones")
+
         for idx in sorted(enrolled_zones):
             zone_id = idx + 1
             zones[zone_id] = {}
@@ -1157,6 +1253,8 @@ class VisonicClient:
                 if zones_disarm_activity and zones_disarm_activity[idx] != b"\xff\xff"
                 else -1
             )
+            zones[zone_id]["active_tamper"] = tamper_actives[idx] == 1
+            zones[zone_id]["tamper_alert"] = tamper_alerts[idx] == 1
             zones[zone_id]["tripped"] = zones_trips[idx] == 1
             zones[zone_id]["last_event_datetime"] = zones_last_events[idx].get(
                 "datetime"
@@ -1191,7 +1289,7 @@ class VisonicClient:
         self, partitions: int | list[int], arm_type: int, user_code: str | None = None
     ):
         """Arm/disarm panel patitions."""
-        _LOGGER.info("ARM: %s %s", partitions, arm_type)
+        _LOGGER.info("ARM: %s %s", partitions, arm_type, extra=MsgLogLevel.L5)
         if not user_code and (
             user_codes := await self.get_setting(Command35Settings.USER_CODES)
         ):
@@ -1209,6 +1307,12 @@ class VisonicClient:
                         partition = partition + 4
             else:
                 partition = int(partitions)
+
+            if CMStatus.download_mode:
+                msg = self.message_builder.message_preprocessor(
+                    bytes.fromhex(ManagedMessages.EXIT_DOWNLOAD_MODE)
+                )
+                self.send_message_no_wait(msg.data, [])
 
             arm_msg = f"a1 00 00 {arm_type:02d} {user_code[0:2]} {user_code[2:4]} {partition:02d} 00 00 00 00 43"
             msg = self.message_builder.message_preprocessor(bytes.fromhex(arm_msg))
