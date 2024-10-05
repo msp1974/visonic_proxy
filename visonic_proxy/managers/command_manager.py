@@ -5,7 +5,7 @@ import logging
 
 from events import ALL_CLIENTS, Event, EventType
 
-from ..const import Config, ConnectionName, Mode, MsgLogLevel
+from ..const import ConnectionName, Mode, MsgLogLevel
 from ..message import RoutableMessage
 from ..proxy import Proxy
 from ..transcoders.builder import MessageBuilder
@@ -143,7 +143,7 @@ class CommandManager:
 
         Used to allow management of this Connection Manager from the Monitor Connection
         """
-        if Config.SEND_E0_MESSAGES and self.proxy.clients.count(
+        if self.proxy.config.SEND_E0_MESSAGES and self.proxy.clients.count(
             ConnectionName.ALARM_MONITOR
         ):
             _LOGGER.info(
@@ -173,7 +173,7 @@ class CommandManager:
                     destination_client_id=0,
                     message=msg,
                 ),
-                requires_ack=Config.ALARM_MONITOR_SENDS_ACKS,
+                requires_ack=self.proxy.config.ALARM_MONITOR_SENDS_ACKS,
             )
 
     async def do_action_command(self, message: RoutableMessage):

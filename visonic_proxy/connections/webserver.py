@@ -12,7 +12,7 @@ import time
 import requests
 import urllib3
 
-from ..const import Config, ConnectionName, MsgLogLevel
+from ..const import ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
 from .httpserver.server import HttpServer, uri_pattern_mapping
@@ -41,7 +41,7 @@ class MyHandler:
         try:
             s = requests.Session()
             return s.post(
-                f"https://{Config.VISONIC_HOST}:8443{request.path}",
+                f"https://{self.proxy.config.VISONIC_HOST}:8443{request.path}",
                 params=request.query_params,
                 headers=request.headers,
                 data=request.body,
@@ -60,7 +60,7 @@ class MyHandler:
         _LOGGER.info("WEB REQUEST: %s", request, extra=MsgLogLevel.L5)
 
         if request.path == "/scripts/update.php":
-            if Config.PROXY_MODE:
+            if self.proxy.config.PROXY_MODE:
                 if res := await self.forward_request(request):
                     try:
                         response: dict = res.json()

@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from .connections.manager import ConnectionManager
-from .const import MESSAGE_LOG_LEVEL, Config, ConnectionName, ManagerStatus, MsgLogLevel
+from .const import MESSAGE_LOG_LEVEL, ConnectionName, ManagerStatus, MsgLogLevel
 from .managers.message_router import MessageCoordinatorStatus
 from .proxy import Proxy
 
@@ -24,8 +24,9 @@ class VisonicProxy:
 
     async def start(self):
         """Run managers."""
-        self.proxy.status.proxy_mode = Config.PROXY_MODE
-        _LOGGER.info("Proxy Mode: %s", Config.PROXY_MODE)
+        self.proxy.status.proxy_mode = self.proxy.config.PROXY_MODE
+        _LOGGER.info("Proxy Mode: %s", self.proxy.config.PROXY_MODE)
+        _LOGGER.info("Connection Mode: %s", self.proxy.config.MONITOR_TYPE)
         _LOGGER.info("Log Level: %s", logging.getLevelName(logging.root.level))
         _LOGGER.info("Message Log Level: %s", MESSAGE_LOG_LEVEL)
 
@@ -33,9 +34,10 @@ class VisonicProxy:
         if logging.root.level == logging.DEBUG:
             _LOGGER.debug("%s  CONFIG  %s", "".rjust(20, "-"), "".rjust(20, "-"))
             configs = [
-                (attr, getattr(Config, attr))
-                for attr in vars(Config)
-                if not callable(getattr(Config, attr)) and not attr.startswith("__")
+                (attr, getattr(self.proxy.config, attr))
+                for attr in vars(self.proxy.config)
+                if not callable(getattr(self.proxy.config, attr))
+                and not attr.startswith("__")
             ]
             for config in configs:
                 _LOGGER.debug("%s: %s", config[0], config[1])

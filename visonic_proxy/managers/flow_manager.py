@@ -15,7 +15,6 @@ from ..const import (
     NAK,
     VIS_ACK,
     VIS_BBA,
-    Config,
     ConnectionName,
     ConnectionStatus,
     MsgLogLevel,
@@ -290,7 +289,7 @@ class FlowManager:
                             (
                                 # Only match msg id if MATCH_ACK_MSG_ID is true - EXPERIMENTAL
                                 decoded_message.msg_id == self.ack_awaiter.msg_id
-                                or not Config.MATCH_ACK_MSG_ID
+                                or not self.proxy.config.MATCH_ACK_MSG_ID
                             )
                             or (
                                 # Sometimes Visonic gets out of sync and Alarm sends ACK 1 higher than Visonic waiting for
@@ -546,7 +545,7 @@ class FlowManager:
 
         # Create timeout event
         timeout = self.proxy.events.fire_event_later(
-            Config.ACK_TIMEOUT,
+            self.proxy.config.ACK_TIMEOUT,
             Event(
                 name,
                 EventType.ACK_TIMEOUT,

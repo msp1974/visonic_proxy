@@ -14,7 +14,7 @@ from websockets.server import serve
 
 from visonic_proxy import __VERSION__
 
-from ..const import VIS_ACK, Config, ConnectionName, MsgLogLevel
+from ..const import VIS_ACK, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..managers.storage_manager import DataStore
 from ..message import QueuedMessage
@@ -93,14 +93,14 @@ class WebsocketServer:
         proxy: Proxy,
         name: str,
         host: str,
-        port: int = Config.WEBSOCKET_PORT,
+        port: int | None,
         data_received_callback: Callable | None = None,
     ):
         """Init."""
         self.proxy = proxy
         self.name = name
         self.host = host
-        self.port = port
+        self.port = port if port else self.proxy.config.WEBSOCKET_PORT
         self.cb_received_data = data_received_callback
 
         self.server_stop: asyncio.Future = None
@@ -131,6 +131,10 @@ class WebsocketServer:
             )
 
             self.client_connected()
+
+            _LOGGER.info(
+                "Websocket server listening on %s port %s", self.host, self.port
+            )
 
     async def run_server(self):
         """Run websocket server.
@@ -170,6 +174,8 @@ class WebsocketServer:
         await asyncio.sleep(0.1)
         if self.server_task and not self.server_task.done():
             self.server_task.cancel()
+
+        _LOGGER.info("Websocket server stopped")
 
     def client_connected(self):
         """Handle client connection."""

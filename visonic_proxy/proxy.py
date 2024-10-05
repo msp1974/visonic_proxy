@@ -7,9 +7,10 @@ import asyncio
 from dataclasses import dataclass
 import datetime as dt
 import logging
+import os
 from typing import Any
 
-from .const import ConnectionName, ConnectionPriority, ConnectionStatus
+from .const import Config, ConnectionName, ConnectionPriority, ConnectionStatus
 from .events import Events
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,10 +41,19 @@ class Proxy:
         self.panel_id: str = None
         self.account_id: str = None
 
+        self.config = Config()
         self.clients = Clients()
         self.events = Events(self.loop)
         self.message_tracker = MessageTracker()
         self.status = SystemStatus()
+
+        self.set_config_from_env_vars()
+
+    def set_config_from_env_vars(self):
+        """Set config from env vars if exist."""
+        for env in os.environ:
+            if hasattr(self.config, env):
+                setattr(self.config, env, os.environ.get(env))
 
 
 @dataclass

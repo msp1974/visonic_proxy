@@ -7,7 +7,6 @@ from enum import StrEnum
 import logging
 
 from ..const import (
-    Config,
     ConnectionName,
     ConnectionPriority,
     ConnectionStatus,
@@ -56,12 +55,12 @@ class ConnectionManager:
         self.unsubscribe_events: list[Callable] = []
 
         self.initial_startup: bool = True
-        self.connect_visonic: bool = Config.PROXY_MODE
+        self.connect_visonic: bool = self.proxy.config.PROXY_MODE
 
     @property
     def is_disconnected_mode(self):
         """Return if no clients connected."""
-        if self.initial_startup and Config.PROXY_MODE:
+        if self.initial_startup and self.proxy.config.PROXY_MODE:
             return False
         return self.proxy.status.disconnected_mode
 
@@ -163,20 +162,20 @@ class ConnectionManager:
             proxy=self.proxy,
             name=ConnectionName.ALARM,
             host="0.0.0.0",
-            port=Config.MESSAGE_PORT,
+            port=self.proxy.config.MESSAGE_PORT,
             data_received_callback=self.flow_manager.data_received,
-            run_keepalive=not Config.ALARM_MONITOR_SENDS_KEEPALIVES,
+            run_keepalive=not self.proxy.config.ALARM_MONITOR_SENDS_KEEPALIVES,
             run_watchdog=True,
             send_non_pl31_messages=False,
         )
 
         # Start Alarm Monitor socket server
-        if Config.MONITOR_TYPE == MonitorType.IP_SOCKET:
+        if self.proxy.config.MONITOR_TYPE == MonitorType.IP_SOCKET:
             self.servers[ConnectionName.ALARM_MONITOR] = ServerConnection(
                 proxy=self.proxy,
                 name=ConnectionName.ALARM_MONITOR,
                 host="0.0.0.0",
-                port=Config.ALARM_MONITOR_PORT,
+                port=self.proxy.config.ALARM_MONITOR_PORT,
                 data_received_callback=self.flow_manager.data_received,
                 run_keepalive=False,
                 run_watchdog=False,
@@ -184,12 +183,12 @@ class ConnectionManager:
             )
 
         # Start websocket server
-        if Config.MONITOR_TYPE == MonitorType.WEBSOCKET:
+        if self.proxy.config.MONITOR_TYPE == MonitorType.WEBSOCKET:
             self.servers[ConnectionName.ALARM_MONITOR] = WebsocketServer(
                 proxy=self.proxy,
                 name=ConnectionName.ALARM_MONITOR,
                 host="0.0.0.0",
-                port=Config.WEBSOCKET_PORT,
+                port=self.proxy.config.WEBSOCKET_PORT,
                 data_received_callback=self.flow_manager.data_received,
             )
 
@@ -218,8 +217,8 @@ class ConnectionManager:
         client = ClientConnection(
             proxy=self.proxy,
             name=ConnectionName.VISONIC,
-            host=Config.VISONIC_HOST,
-            port=Config.MESSAGE_PORT,
+            host=self.proxy.config.VISONIC_HOST,
+            port=self.proxy.config.MESSAGE_PORT,
             parent_connection_id=client_id,
             data_received_callback=self.flow_manager.data_received,
             run_watchdog=True,
@@ -314,7 +313,7 @@ class ConnectionManager:
                 self.stealth_timeout_task.cancel()
 
             self.proxy.status.stealth_mode = False
-            if Config.PROXY_MODE:
+            if self.proxy.config.PROXY_MODE:
                 self.connect_visonic = True
 
                 # Set initial load to false in case Stealth was activated before first connection
@@ -337,7 +336,7 @@ class ConnectionManager:
                     client
                     and client.last_received
                     and (dt.datetime.now() - client.last_received).total_seconds()
-                    <= Config.STEALTH_MODE_TIMEOUT
+                    <= self.proxy.config.STEALTH_MODE_TIMEOUT
                 ):
                     active_clients += 1
 
@@ -405,7 +404,7 @@ class ConnectionManager:
 
         # Send status message to Alarm Monitor
         if (
-            Config.SEND_E0_MESSAGES
+            self.proxy.config.SEND_E0_MESSAGES
             and self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0
         ):
             await self.flow_manager.message_router.command_manager.send_status_message()
@@ -419,7 +418,7 @@ class ConnectionManager:
 
         # Send status message to Alarm Monitor
         if (
-            Config.SEND_E0_MESSAGES
+            self.proxy.config.SEND_E0_MESSAGES
             and self.proxy.clients.count(ConnectionName.ALARM) > 0
         ):
             await self.flow_manager.message_router.command_manager.send_status_message()
@@ -445,7 +444,7 @@ class ConnectionManager:
                     name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
                 )
                 self.proxy.events.fire_event_later(
-                    Config.VISONIC_RECONNECT_INTERVAL, event
+                    self.proxy.config.VISONIC_RECONNECT_INTERVAL, event
                 )
 
     async def send_message(self, message: QueuedMessage):

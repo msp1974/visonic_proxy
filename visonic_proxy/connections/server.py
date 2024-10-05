@@ -8,7 +8,7 @@ import itertools
 import logging
 from socket import AF_INET
 
-from ..const import VIS_ACK, Config, ConnectionName, MsgLogLevel
+from ..const import VIS_ACK, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
 from ..proxy import Proxy
@@ -192,7 +192,7 @@ class ServerConnection:
 
         if (
             self.name == ConnectionName.ALARM_MONITOR
-            and Config.ALARM_MONITOR_SEND_TO_ALL
+            and self.proxy.config.ALARM_MONITOR_SEND_TO_ALL
         ):
             # Send any message to all clients
             targets = list(self.clients.keys())
@@ -330,7 +330,7 @@ class ServerConnection:
                         and (
                             dt.datetime.now() - client.last_received_message
                         ).total_seconds()
-                        > Config.KEEPALIVE_TIMER
+                        > self.proxy.config.KEEPALIVE_TIMER
                     ):
                         _LOGGER.debug("Firing KeepAlive timeout event")
                         self.proxy.events.fire_event(

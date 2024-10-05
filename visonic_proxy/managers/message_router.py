@@ -13,7 +13,6 @@ from ..const import (
     NAK,
     VIS_ACK,
     VIS_BBA,
-    Config,
     ConnectionName,
     ManagedMessages,
     ManagerStatus,
@@ -199,7 +198,7 @@ class MessageRouter:
                 message.message.message_class == "b0"
                 or message.message.data
                 == bytes.fromhex(ManagedMessages.OUT_OF_DOWNLOAD_MODE)
-                or not Config.ALARM_MONITOR_SENDS_ACKS
+                or not self.proxy.config.ALARM_MONITOR_SENDS_ACKS
             ):
                 requires_ack = False
 
@@ -270,8 +269,8 @@ class MessageRouter:
         Will receive NonPowerLink31Message in event_data
         """
         # Respond to command requests
-        if message.message.message_class == Config.ACTION_COMMAND.lower():
-            if Config.ALARM_MONITOR_NEEDS_ACKS:
+        if message.message.message_class == self.proxy.config.ACTION_COMMAND.lower():
+            if self.proxy.config.ALARM_MONITOR_NEEDS_ACKS:
                 await self.command_manager.send_ack_message(message)
             await self.command_manager.do_action_command(message)
             return
@@ -284,7 +283,10 @@ class MessageRouter:
         ):
             # Alarm Monitor has requested to download EPROM.  Need to ask connection manager to
             # set stealth mode
-            if Config.DOWNLOAD_MODE_SETS_STEALTH and not self.proxy.status.stealth_mode:
+            if (
+                self.proxy.config.DOWNLOAD_MODE_SETS_STEALTH
+                and not self.proxy.status.stealth_mode
+            ):
                 _LOGGER.info("Entering download mode", extra=MsgLogLevel.L1)
                 self.proxy.events.fire_event(
                     Event(
@@ -298,7 +300,10 @@ class MessageRouter:
         if message.message.data == bytes.fromhex(ManagedMessages.EXIT_DOWNLOAD_MODE):
             # Alarm Monitor has requested to end downloading EPROM.  Need to ask connection manager to
             # unset stealth mode
-            if Config.DOWNLOAD_MODE_SETS_STEALTH and self.proxy.status.stealth_mode:
+            if (
+                self.proxy.config.DOWNLOAD_MODE_SETS_STEALTH
+                and self.proxy.status.stealth_mode
+            ):
                 _LOGGER.info("Exiting download mode", extra=MsgLogLevel.L1)
                 self.proxy.events.fire_event(
                     Event(
@@ -309,9 +314,9 @@ class MessageRouter:
                 )
 
         # Filter messages from being sent to Alarm
-        if is_filtered(message.message.data):
+        if is_filtered(self.proxy, message.message.data):
             _LOGGER.info("Not sending message due to filter", extra=MsgLogLevel.L2)
-            if Config.ALARM_MONITOR_NEEDS_ACKS:
+            if self.proxy.config.ALARM_MONITOR_NEEDS_ACKS:
                 await self.command_manager.send_ack_message(message)
             return
 
@@ -335,8 +340,12 @@ class MessageRouter:
         # Set some overides here for known messages that do not get ACKd
         if (
             message.destination
-            == (ConnectionName.ALARM_MONITOR and not Config.ALARM_MONITOR_SENDS_ACKS)
-            or message.message.data.hex(" ") in Config.NO_WAIT_FOR_ACK_MESSAGES
+            == (
+                ConnectionName.ALARM_MONITOR
+                and not self.proxy.config.ALARM_MONITOR_SENDS_ACKS
+            )
+            or message.message.data.hex(" ")
+            in self.proxy.config.NO_WAIT_FOR_ACK_MESSAGES
         ):
             requires_ack = False
 
