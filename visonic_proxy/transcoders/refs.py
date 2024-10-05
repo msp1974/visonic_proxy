@@ -65,12 +65,11 @@ class B0CommandName(StrEnum):
     ZONES_07 = "07"  # Investigate more
     WIRELESS_DEVICES_08 = "08"
     WIRELESS_DEVICES_09 = "09"
-    WIRELESS_DEVICES_0a = "0a"
-    WIRELESS_DEVICES_0B = "0b"
+    TAMPER_ACTIVES = "0a"
+    TAMPER_ALERTS = "0b"
     WIRELESS_DEVICES_0C = "0c"
     WIRELESS_DEVICES_0D = "0d"
     WIRELESS_DEVICES_0E = "0e"
-    # 08 - 0e are some sort of zone / device related but return all 0.
     STATUS = "0f"  # Investigate more
     # 10 is invalid command
     # 11 - 16 all return 64 bits of 0 - Zone related?
@@ -102,7 +101,7 @@ class B0CommandName(StrEnum):
     WIRED_DEVICES_SOMETHING_28 = "28"
     UNKNOWN_29 = "29"  # PM10 returned [0, 0, 64, 96, 144, 176, 184, 188, 205, 206, 238, 188, 246]
     STANDARD_EVENT_LOG = "2a"  # Sends 58 pages of data! With 1000, 10 byte entries
-    UNKNOWN_2B = "2b"  # PM10 returned [2097, 1617, 2049, 1, 1793, 1281, 1281, 2129, 2166, 2168, 1281, 2129, 0, 2169, 0, 0, 0, 0, 2176, 2177]
+    TYPE_OFFSETS = "2b"  # PM10 and PM30 returned same - [2097, 1617, 2049, 1, 1793, 1281, 1281, 2129, 2166, 2168, 1281, 2129, 0, 2169, 0, 0, 0, 0, 2176, 2177]
     # 2c is invalid command
     ASSIGNED_ZONE_TYPES = "2d"
     SENSORS_SOMETHING = "2e"
@@ -116,7 +115,7 @@ class B0CommandName(StrEnum):
     LEGACY_EVENT_LOG = "36"  # Decode fails - investigate more - possibly event log
     SOME_EVENT37 = "37"  # Seems to be 1 event - last/alarm/trouble??  0c 00 93 9e 7d 66 - as of 8/7/24 - still same - shows 27/06/2024 17:17:07
     SOMETHING_38 = "38"  # Investigate 3 x 4 bytes
-    # 39 - invalid
+    ASK_ME2 = "39"
     ZONES_3A = "3a"  # Some zone info in bits
     # 3b, 3c are invalid
     ZONE_TEMPS = "3d"
@@ -352,7 +351,7 @@ class ManagedMessages(StrEnum):
     EXIT_DOWNLOAD_MODE = "0d 0f f0 0a"  # Alarm does ACK
     # Don't really know what this is but alarm sends when HA send a STOP
     # message.
-    OUT_OF_DOWNLOAD_MODE = "0d 08 f7 0a"
+    DENIED = "0d 08 f7 0a"
     ENABLE_STEALTH = "e1 02 01"
     DISABLE_STEALTH = "e1 02 00"
 
@@ -369,7 +368,7 @@ class IndexName(IntEnum):
     ZONES = 3
     KEYPADS = 4
     KEYFOBS = 5
-    USERCODES = 6
+    USERS = 6
     X10_DEVICES = 7
     GSM_MODULES = 8
     POWERLINK = 9
