@@ -26,7 +26,7 @@ class VisonicProxy:
         """Run managers."""
         self.proxy.status.proxy_mode = self.proxy.config.PROXY_MODE
         _LOGGER.info("Proxy Mode: %s", self.proxy.config.PROXY_MODE)
-        _LOGGER.info("Connection Mode: %s", self.proxy.config.MONITOR_TYPE)
+        _LOGGER.info("Websocket Mode: %s", self.proxy.config.WEBSOCKET_MODE)
         _LOGGER.info("Log Level: %s", logging.getLevelName(logging.root.level))
         _LOGGER.info("Message Log Level: %s", MESSAGE_LOG_LEVEL)
 

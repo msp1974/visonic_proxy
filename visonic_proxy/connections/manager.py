@@ -11,7 +11,6 @@ from ..const import (
     ConnectionPriority,
     ConnectionStatus,
     Mode,
-    MonitorType,
     MsgLogLevel,
 )
 from ..events import ALL_CLIENTS, Event, EventType
@@ -169,8 +168,18 @@ class ConnectionManager:
             send_non_pl31_messages=False,
         )
 
-        # Start Alarm Monitor socket server
-        if self.proxy.config.MONITOR_TYPE == MonitorType.IP_SOCKET:
+        # Start Alarm Monitor server
+        if self.proxy.config.WEBSOCKET_MODE is True:
+            # Start websocket server
+            self.servers[ConnectionName.ALARM_MONITOR] = WebsocketServer(
+                proxy=self.proxy,
+                name=ConnectionName.ALARM_MONITOR,
+                host="0.0.0.0",
+                port=self.proxy.config.WEBSOCKET_PORT,
+                data_received_callback=self.flow_manager.data_received,
+            )
+        else:
+            # Start IP socket server
             self.servers[ConnectionName.ALARM_MONITOR] = ServerConnection(
                 proxy=self.proxy,
                 name=ConnectionName.ALARM_MONITOR,
@@ -180,16 +189,6 @@ class ConnectionManager:
                 run_keepalive=False,
                 run_watchdog=False,
                 send_non_pl31_messages=True,
-            )
-
-        # Start websocket server
-        if self.proxy.config.MONITOR_TYPE == MonitorType.WEBSOCKET:
-            self.servers[ConnectionName.ALARM_MONITOR] = WebsocketServer(
-                proxy=self.proxy,
-                name=ConnectionName.ALARM_MONITOR,
-                host="0.0.0.0",
-                port=self.proxy.config.WEBSOCKET_PORT,
-                data_received_callback=self.flow_manager.data_received,
             )
 
         for server in self.servers.values():

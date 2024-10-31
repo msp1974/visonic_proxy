@@ -16,19 +16,12 @@ LOG_FILES_TO_KEEP = 10
 MESSAGE_LOG_LEVEL = 3
 
 
-class MonitorType(StrEnum):
-    """Monitor type setting."""
-
-    IP_SOCKET = "socket"
-    WEBSOCKET = "websocket"
-
-
 class Config:
     """Config settings."""
 
     PROXY_MODE = True
 
-    MONITOR_TYPE = MonitorType.IP_SOCKET
+    WEBSOCKET_MODE = True  # Use websocket client instead of IP socket client
 
     VISONIC_HOST = "52.58.105.181"
     MESSAGE_PORT = 5001
