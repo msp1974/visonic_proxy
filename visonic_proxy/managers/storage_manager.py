@@ -1,3 +1,5 @@
+"""Manages sotrage of received messages to support websocket client."""
+
 import logging
 from typing import Any
 
@@ -13,7 +15,10 @@ EPROM = "eprom"
 
 
 class DataStore:
+    """Data store class."""
+
     def __init__(self):
+        """Initialise."""
         self._data: dict[str, dict | str] = {}
         self._raw_data: dict[str, dict | str] = {}
         self._raw_eprom_data: list[int] = [None] * 65535
@@ -281,6 +286,12 @@ class DataStore:
         except KeyError:
             return None
 
+    def get_all_statuses(self, raw_data: bool = False) -> dict:
+        """Get all stored status data."""
+        if raw_data:
+            return self._raw_data[STATUS]
+        return self._data[STATUS]
+
     def get_setting(self, key: str, s42: bool = False) -> dict | str | list:
         """Get data from data store."""
         try:
@@ -290,28 +301,26 @@ class DataStore:
         except KeyError:
             return None
 
-    def get_eprom_setting2(
-        self, page: int, index: int, length: int | None = None
-    ) -> str | dict | None:
-        """Get eprom data."""
-        try:
-            data = self._data[EPROM][page][index]
-            # if length and len(data) < length:
-            #    return None
-            return data
-        except (AttributeError, KeyError, TypeError):
-            return None
+    def get_all_settings(self, raw_data: bool = False, s42: bool = False) -> dict:
+        """Get all stored status data."""
+        if raw_data:
+            d = self._raw_data
+        else:
+            d = self._data
+
+        if s42:
+            return d["settings42"]
+        return d["settings35"]
 
     def get_eprom_setting(
         self, position: int, length: int | None = None
     ) -> str | dict | None:
         """Get eprom data."""
         raw_data = self._raw_eprom_data[position : position + length]
-        # _LOGGER.info("GET EPROM: POS: %s, DATA: %s", position, raw_data)
         if None not in raw_data:
-            data = " ".join(str(x) for x in raw_data)
-            return data
+            return " ".join(str(x) for x in raw_data)
         return None
 
     def get_eprom(self):
+        """Get all eprom data."""
         return self._raw_eprom_data

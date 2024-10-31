@@ -1,3 +1,5 @@
+"""Helper functions."""
+
 from dataclasses import dataclass
 import datetime as dt
 from enum import Enum, StrEnum
@@ -21,7 +23,7 @@ class VPCommand:
 
 
 def ibit(integer: int | list[int], bit: int, lsb_is_0: bool = False) -> bool:
-    """Returns value of bit signified by passed in bit position."""
+    """Return value of bit signified by passed in bit position."""
     # Could be passed list with single int (from 42 commands).  In which case
     # use first byte of list
     if isinstance(integer, list):
@@ -77,7 +79,7 @@ def get_lookup_value(lookup_enum: Enum | StrEnum, value: Any) -> str | int:
 
 
 def calculate_message_checksum(msg: bytearray) -> bytes:
-    """Calculate CRC Checksum"""
+    """Calculate CRC Checksum."""
     checksum = 0
     for char in msg[0 : len(msg)]:
         checksum += char
@@ -88,7 +90,7 @@ def calculate_message_checksum(msg: bytearray) -> bytes:
 
 
 def ip_formatter(data: bytes) -> int:
-    """Decode dhcp info
+    """Decode dhcp info.
 
     string just needs seperating into 3 lots of 4 x 3 chars
     """
@@ -145,3 +147,9 @@ def str_datetime_diff(dtstring1: str, dtstring2: str) -> int:
     except TypeError:
         response = 0
     return response
+
+
+def partition_int_to_list_ids(partitions: int) -> list[int]:
+    """Convert int representing partitions ids to list of ids."""
+    binary = f"{partitions:08b}"
+    return [idx + 1 for idx, ones in enumerate(binary[::-1]) if ones == "1"]
