@@ -315,7 +315,11 @@ class MessageRouter:
 
         # Filter messages from being sent to Alarm
         if is_filtered(self.proxy, message.message.data):
-            _LOGGER.info("Not sending message due to filter", extra=MsgLogLevel.L2)
+            _LOGGER.info(
+                "Not sending message %s due to filter",
+                message.message.data.hex(" "),
+                extra=MsgLogLevel.L2,
+            )
             if self.proxy.config.ALARM_MONITOR_NEEDS_ACKS:
                 await self.command_manager.send_ack_message(message)
             return
