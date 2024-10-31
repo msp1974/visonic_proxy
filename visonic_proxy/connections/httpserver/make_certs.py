@@ -25,12 +25,12 @@ def cert_gen(
     k.generate_key(crypto.TYPE_RSA, 4096)
     cert = crypto.X509()
     cert.get_subject().C = country
-    cert.get_subject().ST = state
+    # cert.get_subject().ST = state
     cert.get_subject().L = locality
     cert.get_subject().O = organisation
     # cert.get_subject().OU = ""
     cert.get_subject().CN = common_name
-    cert.get_subject().emailAddress = email_address
+    # cert.get_subject().emailAddress = email_address
     cert.set_serial_number(serial_number)
     cert.gmtime_adj_notBefore(validity_start)
     cert.gmtime_adj_notAfter(validity_end)
