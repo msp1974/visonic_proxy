@@ -2,7 +2,6 @@
 
 import asyncio
 from collections.abc import Callable
-import contextlib
 from dataclasses import dataclass
 import datetime as dt
 import itertools
@@ -52,7 +51,6 @@ INIT_STATUSES = [
     B0CommandName.DEVICE_TYPES,
     B0CommandName.TAMPER_ACTIVES,
     B0CommandName.TAMPER_ALERTS,
-    B0CommandName.ASSIGNED_PARTITION,
     B0CommandName.ASSIGNED_NAMES,
     B0CommandName.WIRED_DEVICES_STATUS,
     B0CommandName.ASSIGNED_ZONE_TYPES,
@@ -265,7 +263,7 @@ class WebsocketServer:
                 if request in ["turn_on", "turn_off"]:
                     dev_item = msg.get("type")
                     if dev_item == "bypass":
-                        if zone := msg.get("zone"):
+                        if zone := int(msg.get("zone", 0)):
                             response = await self.visonic_client.set_bypass(
                                 zone, request == "turn_on"
                             )
@@ -275,7 +273,7 @@ class WebsocketServer:
                                 send_status = True
 
                     if dev_item == "pgm":
-                        if pgm_id := msg.get("pgm_id"):
+                        if pgm_id := int(msg.get("pgm_id", 0)):
                             response = await self.visonic_client.set_pgm(
                                 pgm_id, request == "turn_on"
                             )
@@ -328,16 +326,34 @@ class WebsocketServer:
                         }
 
                 elif request == "all_statuses":
-                    result = await self.visonic_client.download_all_statuses()
+                    known_only = msg.get("known_only", True)
+                    result = await self.visonic_client.download_all_statuses(
+                        known_only=known_only
+                    )
 
                 elif request == "all_settings":
-                    result = await self.visonic_client.download_all_settings()
+                    known_only = msg.get("known_only", True)
+                    result = await self.visonic_client.download_all_settings(
+                        known_only=known_only
+                    )
+
+                elif request == "send_raw_command":
+                    cmd = msg.get("cmd")
+                    if cmd:
+                        result = await self.visonic_client.send_raw_command(cmd)
+                    else:
+                        result = {
+                            "error": "invalid request",
+                            "message": "No command supplied",
+                        }
 
                 elif request == "arm":
                     state = msg.get("state")
-                    partition = msg.get("partition", 7)
+                    partition = int(msg.get("partition", 7))
                     if state is not None:
-                        response = await self.visonic_client.arming(partition, state)
+                        response = await self.visonic_client.arming(
+                            partition, state, msg.get("code")
+                        )
                         if response:
                             result = {"request": "arm", "result": "success"}
                         else:
@@ -753,7 +769,7 @@ class VisonicClient:
         self, msg: bytes | VPCommand, wait_for: list[str] | None = None
     ) -> bool:
         """Send a message and wait for response to be received."""
-
+        send_msg = None
         if isinstance(msg, VPCommand):
             wait_for = []
             if msg.cmd == "download":
@@ -801,6 +817,11 @@ class VisonicClient:
                 is_armed = True
 
         return is_armed
+
+    async def send_raw_command(self, command: str):
+        """Get A5 message by sending an A2."""
+        msg = bytes.fromhex(command)
+        await self.send_message_and_wait(msg)
 
     async def get_status(
         self, status_id: str, key: str | None = None, refresh: bool = False
@@ -940,15 +961,15 @@ class VisonicClient:
                 await self.send_message_and_wait(bytes.fromhex(msg), wait_for)
             await self.send_message_and_wait(VPCommand("download", False))
 
-    async def download_all_statuses(self):
+    async def download_all_statuses(self, known_only: bool = True):
         """Request all known statuses."""
-        ignore_list = ["06", "0f", "17", "35", "42", "51", "6a"]
+        ignore_list = ["06", "0f", "17", "35", "39", "42", "51", "6a"]
         statuses = [
             status.value for status in B0CommandName if status.value not in ignore_list
         ]
-        await self.download_statuses(statuses)
+        await self.download_statuses(statuses, set_stealth=True)
 
-        return self.datastore.get_all_data()
+        return self.datastore.get_all_statuses()
 
     async def download_all_settings(self, known_only: bool = True):
         """Count to 441 and request all settings."""
@@ -965,7 +986,7 @@ class VisonicClient:
 
         await self.download_settings(settings, set_stealth=True)
 
-        return self.datastore.get_all_data()
+        return self.datastore.get_all_settings()
 
     async def download_all_eprom_settings(self):
         """Download all known eprom settings."""
@@ -1134,9 +1155,7 @@ class VisonicClient:
         devices = {}
         enrolled_devices = await self.get_status(B0CommandName.DEVICE_INFO)
         zone_names = await self.get_setting(Command35Settings.ZONE_NAMES)
-        device_types = await self.get_status(B0CommandName.DEVICE_TYPES)
         pgm_status = await self.get_status(B0CommandName.WIRED_DEVICES_STATUS, "pgm")
-        partitions = await self.get_status(B0CommandName.ASSIGNED_PARTITION)
         tamper_actives = await self.get_status(B0CommandName.TAMPER_ACTIVES)
         tamper_alerts = await self.get_status(B0CommandName.TAMPER_ALERTS)
 
@@ -1152,32 +1171,26 @@ class VisonicClient:
                         i["name"] = zone_names[i.get("assigned_name_id")]
                     else:
                         i["name"] = f"{dev_type.title()} {d+1}"
-                    if device_types.get(dev_type):
-                        device_type_id = device_types[dev_type][d]
-                        i["device_type_id"] = device_type_id
 
                         if SENSOR_TYPES.get(dev_type):
                             try:
                                 i["device_type"] = SENSOR_TYPES[dev_type][
-                                    device_type_id
+                                    i.get("sub_type")
                                 ].func.name
                                 i["device_model"] = SENSOR_TYPES[dev_type][
-                                    device_type_id
+                                    i.get("sub_type")
                                 ].name
                                 i["active_tamper"] = tamper_actives[dev_type][d] == 1
                                 i["tamper_alert"] = tamper_alerts[dev_type][d] == 1
                             except KeyError:
                                 i["device_type"] = dev_type.title()
                                 i["device_model"] = (
-                                    f"{dev_type.title()}-{device_type_id}"
+                                    f"{dev_type.title()}-{i["device_type_id"]}"
                                 )
 
                     if dev_type == "pgm":
                         i["on"] = pgm_status[d] == 1
                         i["device_model"] = dev_type.title()
-
-                    with contextlib.suppress(KeyError):
-                        i["partition"] = partitions[dev_type][d]
 
                     devices[dev_type][d + 1] = i
 
@@ -1198,9 +1211,6 @@ class VisonicClient:
         zones_bypasses = await self.get_status(
             B0CommandName.BYPASSES, "zones", refresh=refresh_key_data
         )
-        zones_partitions = await self.get_status(
-            B0CommandName.ASSIGNED_PARTITION, "zones"
-        )
         zones_temps = await self.get_status(B0CommandName.ZONE_TEMPS, "zones")
         zones_brightnesses = await self.get_status(
             B0CommandName.ZONE_BRIGHTNESS, "zones"
@@ -1219,6 +1229,8 @@ class VisonicClient:
             zl_data = await self.get_eprom_setting(EPROMSetting.ALARM_LED_PM10)
         elif panel_hw_version == "PowerMaster-30":
             zl_data = await self.get_eprom_setting(EPROMSetting.ALARM_LED_PM30)
+        else:
+            zl_data = None
         zones_alarm_leds = zl_data.split(" ") if zl_data else None
 
         # zone disarm activity
@@ -1230,7 +1242,7 @@ class VisonicClient:
         tamper_actives = await self.get_status(B0CommandName.TAMPER_ACTIVES, "zones")
         tamper_alerts = await self.get_status(B0CommandName.TAMPER_ALERTS, "zones")
 
-        for idx in sorted(enrolled_zones):
+        for idx, info in sorted(enrolled_zones.items()):
             zone_id = idx + 1
             zones[zone_id] = {}
 
@@ -1243,7 +1255,7 @@ class VisonicClient:
                 zone_device_types[idx]
             ].name
             zones[zone_id]["device_id"] = device_ids[idx].get("device_id", "Unknown")
-            zones[zone_id]["partition"] = zones_partitions[idx]
+            zones[zone_id]["partitions"] = info.get("partitions")
             zones[zone_id]["chime"] = zone_chimes[idx] == 1
             zones[zone_id]["bypass"] = zones_bypasses[idx] == 1
             zones[zone_id]["alarm_led"] = (
