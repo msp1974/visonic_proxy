@@ -10,10 +10,10 @@ COPY requirements.txt /tmp/
 RUN \
     apk add --no-cache \
     py3-pip=24.0-r2 \
-    python3-dev=3.12.3-r1 \
+    python3-dev=3.12.7-r0 \
     \
     && apk add --no-cache \
-    python3=3.12.3-r1 \
+    python3=3.12.7-r0 \
     \
     && rm /usr/lib/python*/EXTERNALLY-MANAGED \
     && python3 -m ensurepip \
@@ -21,14 +21,6 @@ RUN \
 
 COPY visonic_proxy /visonic_proxy
 COPY run.sh /run.sh
-
-RUN \
-    apk add --no-cache \
-    openssl \
-    && openssl req -x509 -newkey rsa:4096 -keyout private.key -out cert.pem -sha256 -days 3650 -nodes -subj "/C=UK/L=London/O=Private/OU=Development/CN=Webserver" \
-    && mv private.key /visonic_proxy/visonic_proxy/connections/certs/private.key \
-    && mv cert.pem /visonic_proxy/visonic_proxy/connections/certs/cert.pem
-
 
 # Set workdir to our add-on persistent data directory.
 WORKDIR /data
