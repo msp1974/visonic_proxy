@@ -10,7 +10,13 @@ import logging
 import os
 from typing import Any
 
-from .const import Config, ConnectionName, ConnectionPriority, ConnectionStatus
+from .const import (
+    Config,
+    ConnectionName,
+    ConnectionPriority,
+    ConnectionStatus,
+    MsgLogLevel,
+)
 from .events import Events
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,8 +58,24 @@ class Proxy:
     def set_config_from_env_vars(self):
         """Set config from env vars if exist."""
         for env in os.environ:
-            if hasattr(self.config, env):
-                setattr(self.config, env, os.environ.get(env))
+            if hasattr(self.config, env.upper()):
+                try:
+                    value = os.environ.get(env)
+                    if isinstance(value, str):
+                        if value.lower() == "true":
+                            value = True
+                        elif value.lower() == "false":
+                            value = False
+                    _LOGGER.info(
+                        "Setting %s to %s from config",
+                        env,
+                        value,
+                        extra=MsgLogLevel.L1,
+                    )
+                    setattr(self.config, env.upper(), value)
+                except Exception as ex:
+                    _LOGGER.warning("Error setting %s to %s - %s", env, value, ex)
+                    continue
 
 
 @dataclass
