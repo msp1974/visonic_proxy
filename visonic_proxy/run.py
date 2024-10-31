@@ -27,7 +27,8 @@ def validate_certs():
     try:
         cert_gen(path="./connections/httpserver/certs/")
         return True  # noqa: TRY300
-    except Exception:  # noqa: BLE001
+    except Exception as ex:  # noqa: BLE001
+        _LOGGER.error("Error generating certificates - %s", ex)
         return False
 
 
