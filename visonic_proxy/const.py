@@ -5,7 +5,7 @@ from enum import IntEnum, StrEnum
 import logging
 
 LOG_LEVEL = logging.INFO
-LOG_TO_FILE = True
+LOG_TO_FILE = False
 LOG_FILES_TO_KEEP = 10
 
 # 1 connection/disconnection info only
