@@ -82,12 +82,21 @@ class ClientConnection:
             )
         except (OSError, ConnectTimeoutError) as ex:
             _LOGGER.warning("Error connecting to %s. %s", self.name, ex)
+            # Fire disconnected event
+            self.proxy.events.fire_event(
+                Event(
+                    name=self.name,
+                    event_type=EventType.DISCONNECTION,
+                    client_id=self.parent_connection_id,
+                )
+            )
 
     def connection_made(self, transport: asyncio.Transport):
         """Handle connection made callback."""
         _LOGGER.info(
-            "Connected to %s server on port %s for %s",
+            "Connected to %s server on %s port %s for %s",
             self.name,
+            self.host,
             self.port,
             self.parent_connection_id,
             extra=MsgLogLevel.L1,
