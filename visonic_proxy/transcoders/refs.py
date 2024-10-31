@@ -111,8 +111,8 @@ class B0CommandName(StrEnum):
     ZONES_32 = "32"
     ZONES_33 = "33"
     ZONES_34 = "34"
-    SETTINGS_35 = "35"  # Needs a parameter for the setting - see b0_35_command.py
-    LEGACY_EVENT_LOG = "36"  # Decode fails - investigate more - possibly event log
+    SETTINGS_35 = "35"  # Needs a parameter for the setting Command35Settings
+    LEGACY_EVENT_LOG = "36"
     SOME_EVENT37 = "37"  # Seems to be 1 event - last/alarm/trouble??  0c 00 93 9e 7d 66 - as of 8/7/24 - still same - shows 27/06/2024 17:17:07
     SOMETHING_38 = "38"  # Investigate 3 x 4 bytes
     ASK_ME2 = "39"
@@ -139,6 +139,7 @@ class B0CommandName(StrEnum):
     TROUBLES = "54"
     REPEATERS_SOMETHING_55 = "55"
     UNKNOWN_56 = "56"  # PM10 returned [3, 0, 2, 2, 6, 0, 0]
+    UNKNOWN_57 = "57"
     DEVICE_INFO = "58"
     GSM_STATUS = "59"
     # 5a invalid
