@@ -13,6 +13,7 @@ from .helpers import (
     ibit,
     ints_to_datetime,
     ip_formatter,
+    partition_int_to_list_ids,
 )
 from .refs import (
     EVENTS,
@@ -102,13 +103,71 @@ class B0Formatters:
                     }
                 )
 
-            return events
         except IndexError:
             return "Invalid Data"
+        else:
+            return events
 
     def format_2d(self, data: list[int]) -> list[str]:
         """Zone types lookup to ref ZoneTypes."""
         return [ZONE_TYPES[d] for d in data]
+
+    def format_36(self, data: list[str]) -> list[dict[str, Any]]:
+        """Format legacy event log."""
+        events = []
+        for hex_event in data:
+            event = bytearray.fromhex(hex_event)
+            date = decode_timestamp(event[:4])
+            device_type = event[4]
+            event_type = event[7]
+            partition = event[8]
+            zone = event[5]
+            user = event[6]
+
+            device_type_name = get_lookup_value(IndexName, device_type)
+            event_name = EVENTS[event_type]
+
+            event = {
+                "dt": date.strftime("%Y-%m-%d %H:%M:%S"),
+                "device_type": device_type,
+                "event_id": event_type,
+                "device_name": device_type_name,
+                "event_name": event_name,
+            }
+
+            if device_type == 6:
+                event["partition"] = partition
+                event["user"] = user + 1
+
+            if device_type == 3:
+                event["zone"] = zone + 1
+
+            events.append(event)
+        return events
+
+    def format_37(self, data: list[str]) -> list[dict[str, Any]]:
+        """Format event something."""
+        events = []
+        try:
+            for hex_event in data:
+                event = bytearray.fromhex(hex_event)
+                date = decode_timestamp(event[-4:])
+                device_type = event[0]
+                event_type = event[1]
+                device_type_name = get_lookup_value(IndexName, device_type)
+
+                events.append(
+                    {
+                        "dt": date.strftime("%Y-%m-%d %H:%M:%S"),
+                        "device_type": device_type,
+                        "device_type_name": device_type_name,
+                        "event_id": event_type,
+                    }
+                )
+        except IndexError:
+            return "Invalid Data"
+        else:
+            return events
 
     def format_3d(self, data: list[int]) -> list[float]:
         """Format zone temps.
@@ -152,7 +211,7 @@ class B0Formatters:
         1 is device type
         2 is zone id
         3 is ?
-        4 is if wireless?
+        4 is partitions
         5 is ?
         6 - name
         7 is ?
@@ -168,13 +227,17 @@ class B0Formatters:
                 result[dev_type] = {}
 
             dev_id = f"{b2i(device[8:10]):03d}-{b2i(device[10:12]):04d}"
+            device_type_id = device[0]
+            sub_type = device[1]
             id_no = device[2]
-            wireless = device[4] == 1
+            partitions = device[4]
             name = device[6]
             result[dev_type][id_no] = {
                 "device_id": dev_id,
+                "device_type_id": device_type_id,
+                "sub_type": sub_type,
                 "assigned_name_id": name,
-                "wireless": wireless,
+                "partitions": partition_int_to_list_ids(partitions),
             }
         return result
 
@@ -316,6 +379,7 @@ class B0Formatters:
 
     def format_35_89(self, data: int | list[int]) -> str:
         """Panic alarm setting.
+
         bits 2 & 3
         00 - disabled
         01 - silent
@@ -332,7 +396,8 @@ class B0Formatters:
         return ibit(data, 4)
 
     def format_35_91(self, data: int) -> str:
-        """Bypass setting   Trouble Beeps
+        """Bypass setting   Trouble Beeps.
+
         bits 0 & 1          bits 5 & 6
         00 - no bypass      00 - off
         01 - force arm      01 - off @ night
@@ -388,19 +453,31 @@ class B0Formatters:
         return {"trouble beeps": trouble_beeps, "zone pairing": ibit(data, 7)}
 
     def format_35_97(self, data: list[int]) -> str:
-        """Duress code. Decodes as list of int but should be direct string"""
+        """Duress code.
+
+        Decodes as list of int but should be direct string
+        """
         return f"{data[0]:0>2x}{data[1]:0>2x}"
 
     def format_35_128(self, data: list[int]) -> str:
-        """GPRS APN. Decodes as list of int but should be decoded ascii string"""
+        """GPRS APN.
+
+        Decodes as list of int but should be decoded ascii string
+        """
         return bytearray(data).decode("ascii", errors="ignore")
 
     def format_35_129(self, data: list[int]) -> str:
-        """GPRS User. Decodes as list of int but should be decoded ascii string"""
+        """GPRS User.
+
+        Decodes as list of int but should be decoded ascii string
+        """
         return bytearray(data).decode("ascii", errors="ignore")
 
     def format_35_130(self, data: list[int]) -> str:
-        """GPRS Password. Decodes as list of int but should be decoded ascii string"""
+        """GPRS Password.
+
+        Decodes as list of int but should be decoded ascii string
+        """
         return bytearray(data).decode("ascii", errors="ignore")
 
     def format_35_138(self, data: list[int]) -> str:
@@ -419,14 +496,20 @@ class B0Formatters:
         return options[data[0] if isinstance(data, list) else data]
 
     def format_35_164(self, data: list[int]) -> list[str]:
-        """Email addresses - presented as 0 temrinated int list.  4 x 40 bytes"""
+        """Email addresses.
+
+        Presented as 0 temrinated int list.  4 x 40 bytes
+        """
         return [
             bytearray(d).decode("ascii", errors="ignore").rstrip("\x00")
             for d in batched(data, 40)
         ]
 
     def format_35_165(self, data: list[int]) -> list[str]:
-        """SMS/MMS phone numbers - presented as ff terminated int list.  4 x 8 bytes"""
+        """SMS/MMS phone numbers.
+
+        Presented as ff terminated int list.  4 x 8 bytes
+        """
         return [bytearray(d).hex().rstrip("f") for d in batched(data, 8)]
 
     def format_35_170(self, data: list[int]) -> str:
@@ -434,7 +517,10 @@ class B0Formatters:
         return bytearray(data).hex()
 
     def format_35_173(self, data: list[int]) -> list[str]:
-        """GPRS Caller IDs - presented as ff terminated int list.  2 x 8 bytes"""
+        """GPRS Caller IDs.
+
+        Presented as ff terminated int list.  2 x 8 bytes
+        """
         return [bytearray(d).hex().rstrip("f") for d in batched(data, 8)]
 
     def format_35_229(self, data: str) -> list[str]:
@@ -458,7 +544,7 @@ class B0Formatters:
         return result
 
     def format_42_36(self, data: list[int]) -> int:
-        """EPROM version to major.minor format"""
+        """EPROM version to major.minor format."""
         byte_int = int.to_bytes(data[0], 2)
         return byte_int[0] + byte_int[1] / 1000
 
