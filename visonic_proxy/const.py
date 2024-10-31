@@ -21,7 +21,7 @@ class Config:
 
     PROXY_MODE = True
 
-    WEBSOCKET_MODE = True  # Use websocket client instead of IP socket client
+    WEBSOCKET_MODE = False  # Use websocket client instead of IP socket client
 
     VISONIC_HOST = "52.58.105.181"
     MESSAGE_PORT = 5001
