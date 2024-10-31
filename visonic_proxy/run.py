@@ -1,52 +1,55 @@
 #!/usr/bin/env python
 
-"""Run script"""
+"""Run script."""
 
 import asyncio
-import logging
-from logging.handlers import RotatingFileHandler
+import os
 import sys
 
-from visonic_proxy.const import LOG_FILES_TO_KEEP, LOG_LEVEL, LOG_TO_FILE
-from visonic_proxy.visonic import Runner
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-handlers = [logging.StreamHandler(sys.stdout)]
-
-if LOG_TO_FILE:
-    f_handler = RotatingFileHandler(
-        "message.log", backupCount=LOG_FILES_TO_KEEP
-    )
-    handlers.append(f_handler)
-
-logging.basicConfig(
-    # force=
-    level=LOG_LEVEL,
-    format="%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=handlers,
-)
+from visonic_proxy.connections.httpserver.make_certs import cert_gen  # noqa: E402
+from visonic_proxy.const import LOG_TO_FILE  # noqa: E402
+from visonic_proxy.logger import _LOGGER, rollover  # noqa: E402
+from visonic_proxy.runner import VisonicProxy  # noqa: E402
 
 
-_LOGGER = logging.getLogger(__name__)
+def validate_certs():
+    """Validate certificate files."""
+    if os.path.isfile("./connections/httpserver/certs/cert.pem") and os.path.isfile(
+        "./connections/httpserver/certs/private.key"
+    ):
+        return True
+
+    # Generate certs
+    _LOGGER.info("Generating webserver certificates")
+    try:
+        cert_gen(path="./connections/httpserver/certs/")
+        return True  # noqa: TRY300
+    except Exception as ex:  # noqa: BLE001
+        _LOGGER.error("Error generating certificates - %s", ex)
+        return False
 
 
 if __name__ == "__main__":
-    # start a new log on each restart
-    if LOG_TO_FILE:
-        f_handler.doRollover()
+    if validate_certs():
+        # start a new log on each restart
+        if LOG_TO_FILE:
+            rollover()
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    proxy_server = Runner(loop)
-    task = loop.create_task(proxy_server.run(), name="ProxyRunner")
-    try:
-        loop.run_until_complete(task)
-        # server = loop.run_until_complete(proxy_server.run())
-    except KeyboardInterrupt:
-        _LOGGER.info("Keyboard interrupted. Exit.")
-        task.cancel()
-        loop.run_until_complete(proxy_server.stop())
-        # loop.run_until_complete(proxy_server.terminate())
-
-    _LOGGER.info("Loop is closed")
-    loop.close()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        proxy_server = VisonicProxy(loop)
+        task = loop.create_task(proxy_server.start(), name="ProxyRunner")
+        try:
+            loop.run_until_complete(task)
+        except KeyboardInterrupt:
+            _LOGGER.info("Keyboard interrupted. Exit.")
+            task.cancel()
+            loop.run_until_complete(proxy_server.stop())
+        loop.close()
+    else:
+        _LOGGER.error(
+            "Unable to find certificate files.  Please generate these with create_certs.sh"
+        )

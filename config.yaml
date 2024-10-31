@@ -1,6 +1,6 @@
 name: "Visonic Proxy"
 description: "Visonic Proxy Server for Using Powerlink with Visonic Integration"
-version: "1.0.2"
+version: "1.0.3"
 slug: "visonic_proxy"
 init: false
 arch:
@@ -10,9 +10,27 @@ arch:
   - armv7
   - i386
 startup: services
-host_network: true
+host_network: false
 ports:
   5001/tcp: 5001
   5002/tcp: 5002
+  8082/tcp: 8082
   8443/tcp: 8443
+ports_description:
+  5001/tcp: Alarm connection
+  5002/tcp: Monitor socket connection
+  8082/tcp: Websocket connection (if enabled)
+  8443/tcp: Alarm web connection
+map:
+  - addon_config:rw
 legacy: true
+options:
+  proxy_mode: true
+  websocket_mode: true
+  visonic_host: "52.58.105.181"
+schema:
+  log_level: list(trace|debug|info|notice|warning|error|fatal)?
+  proxy_mode: bool
+  websocket_mode: bool
+  visonic_host: str
+  
