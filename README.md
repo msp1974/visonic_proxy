@@ -12,7 +12,7 @@ This is currently in beta, is designed to work with PowerMaster panels only and 
 - Powermaster 30
 
 
-It has a socket mode or websocket mode which can be configured in the addon configuration.
+It has a socket mode or websocket mode which can be configured in the addon configuration by turning off (socket mode) or on (websocket mode) the websocket mode option switch.
 - Socket port - 5002
 - Websocket port - 8082
 
