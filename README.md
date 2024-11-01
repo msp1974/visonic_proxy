@@ -75,7 +75,7 @@ In order for the panel to connect to this addon, you will need to stop it being 
 
 There are many ways to block access for your panel to the PowerManage server depending on your network equipment.  In my case, I use parental control to block access to the internet for the alarm panel.  However, you could also use port blocking (Network Services Filter) on a firewall.  You need (as a minimum) to block ports 5001 and 8442 from the panel to the internet.
 
-## NOTES 
+#### NOTES 
 - Again, depending on your equipment, you may need to disconnect your alarm ethernet cable for 30s and reconnect it in order for it to connect to the addon the first time.  You can see in the addon logs if the alarm has connected.
 - Do not block access for your HA instance to the PowerManage server as the addon connects to that.
 
