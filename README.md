@@ -1,11 +1,18 @@
 # Visonic Proxy
 
-This is currently in beta and has been tested with the following panels.
+A proxy for Visonic Alarms to allow panels with Powerlink 3.1 modules to be able to work with HomeAssistant and the Visonic apps at the same time.
+
+It is supported by the following HA integrations.
+
+- Visonic Powerlink (websocket mode) - @msp1974 https://github.com/msp1974/visonic_powerlink
+- Visonic Alarm Panel for Home Assistant (socket mode) - @davesmeghead https://github.com/davesmeghead/visonic
+
+This is currently in beta, is designed to work with PowerMaster panels only and has been tested with the following panels.
 - Powermaster 10
 - Powermaster 30
 
 
-It has both a socket mode and a websocket mode which can be configured in the options.
+It has a socket mode or websocket mode which can be configured in the addon configuration.
 - Socket port - 5002
 - Websocket port - 8082
 
@@ -71,4 +78,8 @@ There are many ways to block access for your panel to the PowerManage server dep
 NOTE: Again, depending on your equipment, you may need to disconnect your alarm ethernet cable for 30s and reconnect it in order for it to connect to the addon the first time.
 
 You can see in the addon logs if the alarm has connected.
+
+## Issues
+
+Please log issues on the github repository, providing useful logging where possible, along with what Visonic panel you have, firmware version of panel and powerlink module and a clear description of the issue.
 
