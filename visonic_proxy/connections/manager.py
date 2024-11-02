@@ -438,13 +438,15 @@ class ConnectionManager:
             if self.proxy.clients.count(event.name) == 0:
                 self.set_disconnected_mode(True)
 
-                # Set reconnection timed event for Visonic
-                event = Event(
-                    name=ConnectionName.VISONIC, event_type=EventType.REQUEST_CONNECT
-                )
-                self.proxy.events.fire_event_later(
-                    self.proxy.config.VISONIC_RECONNECT_INTERVAL, event
-                )
+                # Set reconnection timed event for Visonic if not in stealth mode
+                if not self.proxy.status.stealth_mode:
+                    event = Event(
+                        name=ConnectionName.VISONIC,
+                        event_type=EventType.REQUEST_CONNECT,
+                    )
+                    self.proxy.events.fire_event_later(
+                        self.proxy.config.VISONIC_RECONNECT_INTERVAL, event
+                    )
 
     async def send_message(self, message: QueuedMessage):
         """Route message to correct connection."""

@@ -297,7 +297,6 @@ class B0Formatters:
 
         Match to IndexName for what each value is.
         """
-        _LOGGER.info("35_07DATA: %s", data)
         result = {}
         for i in range(0, len(data), 2):
             result[IndexName(i / 2).name.lower()] = data[i]
@@ -348,7 +347,6 @@ class B0Formatters:
 
         Match to IndexName for what each value is.
         """
-        _LOGGER.info("DATA: %s", data)
         result = {}
         for i in range(0, len(data), 1):
             result[IndexName(i).name.lower()] = data[i]

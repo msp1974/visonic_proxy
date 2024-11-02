@@ -123,7 +123,6 @@ class ClientConnection:
             )
 
         # Fire connected event
-        # Fire connected event
         self.proxy.events.fire_event(
             Event(
                 name=self.name,
