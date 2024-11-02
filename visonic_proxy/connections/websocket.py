@@ -594,7 +594,7 @@ class VisonicClient:
                 download_mode=download,
             )
 
-            _LOGGER.info("STATUS: %s", cm_status)
+            _LOGGER.debug("STATUS: %s", cm_status)
             # Set stealth mode event for anything waiting on it
             if stealth:
                 self.stealth_mode.set()
@@ -642,7 +642,7 @@ class VisonicClient:
             if dec.msg_type == MessageType.RESPONSE:
                 if dec.cmd in [B0CommandName.SETTINGS_35, B0CommandName.SETTINGS_42]:
                     setting_name = get_lookup_value(Command35Settings, dec.setting)
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         "SETTING: %s: %s",
                         f"{setting_name} ({dec.setting})",
                         self.datastore.get_setting(
@@ -652,7 +652,7 @@ class VisonicClient:
                     )
                 else:
                     command_name = get_lookup_value(B0CommandName, dec.cmd)
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         "STATUS: %s: %s",
                         f"{command_name} ({dec.cmd})",
                         self.datastore.get_status(f"{dec.cmd}_{command_name}"),
@@ -850,7 +850,6 @@ class VisonicClient:
         setting_name = f"{setting}_{get_lookup_value(Command35Settings, setting)}"
         if refresh or self.datastore.get_setting(setting_name) is None:
             setting_id = setting.to_bytes(2, byteorder="little")
-            _LOGGER.info(setting_id)
             msg = self.message_builder.message_preprocessor(
                 bytes.fromhex(f"b0 35 {setting_id.hex(" ")}")
             )
@@ -1050,7 +1049,13 @@ class VisonicClient:
         output["time_taken"] = round((end - start).total_seconds(), 3)
         output["datetime"] = end.strftime("%Y-%m-%d %H:%M:%S")
 
-        return json.dumps(output, indent=2)
+        try:
+            return json.dumps(output, indent=2)
+        except TypeError as ex:
+            _LOGGER.error(
+                "Error processing panel status.  Data: %s\nError: %s", output, ex
+            )
+            raise TypeError from ex
 
     async def get_panel_info(
         self, json_encode: bool = True, refresh_key_data: bool = False
@@ -1115,7 +1120,8 @@ class VisonicClient:
             return result  # noqa: TRY300
 
         except Exception as ex:  # noqa: BLE001
-            return {"Data error": ex}
+            _LOGGER.error("Error getting panel info. %s", ex)
+            raise Exception from ex
 
     async def get_partition_info(self, refresh_key_data: bool = False):
         """Get partition info."""
@@ -1174,19 +1180,32 @@ class VisonicClient:
 
                         if SENSOR_TYPES.get(dev_type):
                             try:
-                                i["device_type"] = SENSOR_TYPES[dev_type][
+                                if device_type_info := SENSOR_TYPES[dev_type].get(
                                     i.get("sub_type")
-                                ].func.name
-                                i["device_model"] = SENSOR_TYPES[dev_type][
-                                    i.get("sub_type")
-                                ].name
-                                i["active_tamper"] = tamper_actives[dev_type][d] == 1
-                                i["tamper_alert"] = tamper_alerts[dev_type][d] == 1
+                                ):
+                                    i["device_type"] = device_type_info.func.name
+                                    i["device_model"] = device_type_info.name
+                                    i["active_tamper"] = (
+                                        tamper_actives[dev_type][d] == 1
+                                    )
+                                    i["tamper_alert"] = tamper_alerts[dev_type][d] == 1
+                                else:
+                                    _LOGGER.warning(
+                                        "Unrecognised device: %s - %s",
+                                        dev_type,
+                                        i.get("sub_type"),
+                                    )
+                                    i["device_type"] = dev_type.title()
+                                    i["device_model"] = (
+                                        f"{dev_type.title()}-{i["device_type_id"]}"
+                                    )
                             except KeyError:
-                                i["device_type"] = dev_type.title()
-                                i["device_model"] = (
-                                    f"{dev_type.title()}-{i["device_type_id"]}"
+                                _LOGGER.error(
+                                    "Error processing device: %s - %s",
+                                    dev_type,
+                                    i.get("sub_type"),
                                 )
+                                i = {}
 
                     if dev_type == "pgm":
                         i["on"] = pgm_status[d] == 1
@@ -1248,12 +1267,12 @@ class VisonicClient:
 
             zones[zone_id]["name"] = zone_names[zones_name_ids[idx]]
             zones[zone_id]["type"] = zones_types[idx]
-            zones[zone_id]["device_type"] = SENSOR_TYPES["zones"][
-                zone_device_types[idx]
-            ].func.name
-            zones[zone_id]["device_model"] = SENSOR_TYPES["zones"][
-                zone_device_types[idx]
-            ].name
+            if zone_device_info := SENSOR_TYPES["zones"].get(zone_device_types[idx]):
+                zones[zone_id]["device_type"] = zone_device_info.func.name
+                zones[zone_id]["device_model"] = zone_device_info.name
+            else:
+                zones[zone_id]["device_type"] = "Unknown"
+                zones[zone_id]["device_model"] = f"Unknown-{zone_device_types[idx]}"
             zones[zone_id]["device_id"] = device_ids[idx].get("device_id", "Unknown")
             zones[zone_id]["partitions"] = info.get("partitions")
             zones[zone_id]["chime"] = zone_chimes[idx] == 1
@@ -1279,7 +1298,7 @@ class VisonicClient:
             )
             zones[zone_id]["last_event"] = zones_last_events[idx].get("code")
 
-            if SENSOR_TYPES["zones"][zone_device_types[idx]].func in [
+            if zone_device_info and zone_device_info.func in [
                 SensorType.MOTION,
                 SensorType.CAMERA,
             ]:
