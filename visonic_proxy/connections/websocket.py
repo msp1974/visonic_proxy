@@ -250,6 +250,13 @@ class WebsocketServer:
         if self.cb_received_data:
             self.cb_received_data(self.name, self.client_id, data)
 
+    def is_hex(self, s):
+        try:
+            int(s, 16)
+            return True
+        except ValueError:
+            return False
+
     async def websocket_receive_message(self, msg: dict | str):
         """Receive message from websocket."""
         result = None
@@ -284,15 +291,20 @@ class WebsocketServer:
 
                 elif request == "command":
                     cmd = str(msg.get("id"))
-                    if cmd is not None and cmd not in [
-                        "06",
-                        "0f",
-                        "17",
-                        "35",
-                        "42",
-                        "51",
-                        "6a",
-                    ]:
+                    if (
+                        cmd is not None
+                        and self.is_hex(cmd)
+                        and cmd
+                        not in [
+                            "06",
+                            "0f",
+                            "17",
+                            "35",
+                            "42",
+                            "51",
+                            "6a",
+                        ]
+                    ):
                         cmd_name = get_lookup_value(B0CommandName, cmd)
                         response = await self.visonic_client.get_status(
                             cmd, refresh=True
