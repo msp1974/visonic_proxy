@@ -17,9 +17,9 @@ The status command will return a standard status output of the panel.  If the Vi
 
 ## Command
 
-You can issue any status command by id to the websocket client and it will request from the alarm panel and return a json decoded version of the response.  Command ids are as per the list of B0 status commands.
+You can issue any status command by id to the websocket client and it will request from the alarm panel and return a json decoded version of the response.  Command ids are as per the list of B0 status commands and must be a hex string ie "0a", "00" etc.
 ```
-{"request":"command", "id": [COMMAND ID]}
+{"request":"command", "id": "[COMMAND ID]"}
 ```
 
 ## Setting

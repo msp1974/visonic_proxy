@@ -252,7 +252,7 @@ class WebsocketServer:
 
     def is_hex(self, s):
         try:
-            int(s, 16)
+            bytes.fromhex(s)
             return True
         except ValueError:
             return False
