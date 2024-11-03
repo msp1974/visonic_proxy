@@ -283,7 +283,7 @@ class WebsocketServer:
                                 send_status = False
 
                 elif request == "command":
-                    cmd = msg.get("cmd")
+                    cmd = str(msg.get("id"))
                     if cmd is not None and cmd not in [
                         "06",
                         "0f",
@@ -308,7 +308,7 @@ class WebsocketServer:
                             "message": "Either command not supplied or an invalid command provided",
                         }
                 elif request == "setting":
-                    setting = msg.get("setting")
+                    setting = int(msg.get("id"))
                     if setting is not None and setting not in [83, 413]:
                         setting_name = get_lookup_value(Command35Settings, setting)
                         response = await self.visonic_client.get_setting(
@@ -325,7 +325,7 @@ class WebsocketServer:
                             "message": "Either setting not supplied or an invalid setting provided",
                         }
 
-                elif request == "all_statuses":
+                elif request == "all_commands":
                     known_only = msg.get("known_only", True)
                     result = await self.visonic_client.download_all_statuses(
                         known_only=known_only
@@ -1315,9 +1315,9 @@ class VisonicClient:
                     requested_delayed_status = True
                     await self.schedule_status_update(15)
 
-            if zones_temps[idx] != 255:
+            if zones_temps and zones_temps[idx] != 255:
                 zones[zone_id]["temperature"] = zones_temps[idx]
-            if zones_brightnesses[idx] != "na":
+            if zones_brightnesses and zones_brightnesses[idx] != "na":
                 zones[zone_id]["brightness"] = zones_brightnesses[idx]
 
         return zones
