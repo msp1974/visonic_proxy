@@ -46,6 +46,7 @@ class Proxy:
         self.loop = loop
         self.panel_id: str = None
         self.account_id: str = None
+        self.is_addon: bool = False
 
         self.config = Config()
         self.clients = Clients()
@@ -59,6 +60,10 @@ class Proxy:
     def set_config_from_env_vars(self):
         """Set config from env vars if exist."""
         for env in os.environ:
+            # Set is addon if SUPERVISOR_TOKEN env var exists
+            if env == "SUPERVISOR_TOKEN":
+                self.is_addon = True
+
             if hasattr(self.config, env.upper()):
                 try:
                     value = os.environ.get(env)
@@ -74,7 +79,7 @@ class Proxy:
                         extra=MsgLogLevel.L1,
                     )
                     setattr(self.config, env.upper(), value)
-                except Exception as ex:
+                except Exception as ex:  # noqa: BLE001
                     _LOGGER.warning("Error setting %s to %s - %s", env, value, ex)
                     continue
 
