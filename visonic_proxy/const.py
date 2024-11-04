@@ -4,20 +4,19 @@ from collections import namedtuple
 from enum import IntEnum, StrEnum
 import logging
 
-LOG_LEVEL = logging.INFO
-LOG_TO_FILE = False
-LOG_FILES_TO_KEEP = 10
-
-# 1 connection/disconnection info only
-# 2 same as 1 plus sent messages
-# 3 same as 2 plus sent ACKs
-# 4 same as 3 plus received messages
-# 5 same as 4 plus ack waiting messages and builder messages
-MESSAGE_LOG_LEVEL = 3
-
 
 class Config:
     """Config settings."""
+
+    # 1 connection/disconnection info only
+    # 2 same as 1 plus sent messages
+    # 3 same as 2 plus sent ACKs
+    # 4 same as 3 plus received messages
+    # 5 same as 4 plus ack waiting messages and builder messages
+    LOG_LEVEL = logging.INFO
+    MESSAGE_LOG_LEVEL = 3
+    LOG_FILE = ""
+    LOG_FILES_TO_KEEP = 10
 
     PROXY_MODE = True
 
@@ -60,12 +59,17 @@ class Config:
     FILTER_B0_COMMANDS = []  # B0 messages from Monitor of these types are dropped
     NO_WAIT_FOR_ACK_MESSAGES = []  # These messages will not wait for ACKs
 
+    INVALID_MESSAGE_THRESHOLD = (
+        2  # Number of times a 06 response is received before marking command invalid
+    )
+
 
 TEXT_UNKNOWN = "UNKNOWN"
 VIS_ACK = "VIS-ACK"
 VIS_BBA = "VIS-BBA"
 ADM_CID = "*ADM-CID"
 ADM_ACK = "*ACK"
+ACK = "ACK"
 DUH = "DUH"
 NAK = "NAK"
 

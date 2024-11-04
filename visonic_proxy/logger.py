@@ -4,14 +4,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 
-from .const import (
-    KEYWORD_COLORS,
-    LOG_FILES_TO_KEEP,
-    LOG_LEVEL,
-    LOG_TO_FILE,
-    MESSAGE_LOG_LEVEL,
-    Colour,
-)
+from .const import KEYWORD_COLORS, Colour, Config
 
 DEBUG_FORMAT = "%(asctime)s %(levelname)-8s %(fileline)-20s %(message)s"
 STD_FORMAT = "%(asctime)s %(levelname)-8s %(message)10s"
@@ -23,7 +16,7 @@ class MessageLevelFilter(logging.Filter):
     def filter(self, record):
         """Apply filter."""
         if (
-            record.__dict__.get("msglevel", 0) <= MESSAGE_LOG_LEVEL
+            record.__dict__.get("msglevel", 0) <= Config.MESSAGE_LOG_LEVEL
             or record.levelno == logging.DEBUG
         ):
             return True
@@ -70,7 +63,7 @@ class CustomStreamFormatter(CustomFileFormatter):
 
 def get_format_string() -> str:
     """Get format string."""
-    if LOG_LEVEL == logging.DEBUG:
+    if Config.LOG_LEVEL == logging.DEBUG:
         return DEBUG_FORMAT
     return STD_FORMAT
 
@@ -82,9 +75,9 @@ message_filter = MessageLevelFilter()
 
 
 # File handler
-if LOG_TO_FILE:
+if Config.LOG_FILE:
     f_handler = RotatingFileHandler(
-        "../logs/message.log", backupCount=LOG_FILES_TO_KEEP
+        Config.LOG_FILE, backupCount=Config.LOG_FILES_TO_KEEP
     )
     f_fmt = CustomFileFormatter(DEBUG_FORMAT)
     f_handler.setFormatter(f_fmt)
@@ -100,7 +93,7 @@ handlers.append(s_handler)
 
 # Initiate logger
 _LOGGER = logging.getLogger("visonic_proxy")
-_LOGGER.setLevel(LOG_LEVEL)
+_LOGGER.setLevel(Config.LOG_LEVEL)
 for handler in handlers:
     _LOGGER.addHandler(handler)
 # _LOGGER.handlers = handlers

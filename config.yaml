@@ -1,6 +1,6 @@
 name: "Visonic Proxy"
 description: "Visonic Proxy Server for Using Powerlink with Visonic Integration"
-version: "1.0.5"
+version: "1.0.6"
 slug: "visonic_proxy"
 url: https://github.com/msp1974/visonic_proxy
 init: false
@@ -26,12 +26,16 @@ map:
   - addon_config:rw
 legacy: true
 options:
-  proxy_mode: true
-  websocket_mode: true
   visonic_host: "52.58.105.181"
+  websocket_mode: true
+  message_log_level: 1
+  log_level: "info"
+  
 schema:
-  log_level: list(trace|debug|info|notice|warning|error|fatal)?
-  proxy_mode: bool
-  websocket_mode: bool
   visonic_host: str
+  websocket_mode: bool
+  message_log_level: "int(1,5)"
+  log_level: list(trace|debug|info|notice|warning|error|fatal)?
+  
+  
   
