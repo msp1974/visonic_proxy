@@ -574,7 +574,6 @@ class VisonicClient:
             if message_class == MessageClass.B0:
                 try:
                     dec = self.message_decoder.decode(data)
-                    _LOGGER.info("DEC: %s", dec, extra=MsgLogLevel.L1)
 
                     if dec.cmd == B0CommandName.INVALID_COMMAND:
                         # If waiting multiple - do not know which is invalid.
@@ -662,7 +661,8 @@ class VisonicClient:
                     dec.data,
                     dec.raw_data,
                 )
-                self.waiting_for.remove(f"{dec.cmd}_{dec.setting}")
+                if dec.msg_type == 3 and dec.page in (0, 255):
+                    self.register_received_message(f"{dec.cmd}_{dec.setting}")
             elif dec.cmd not in [B0CommandName.INVALID_COMMAND]:
                 data_changed = self.datastore.store(
                     STATUS,
@@ -673,7 +673,8 @@ class VisonicClient:
                     dec.data,
                     dec.raw_data,
                 )
-                self.register_received_message(dec.cmd)
+                if dec.msg_type == 3 and dec.page in (0, 255):
+                    self.register_received_message(dec.cmd)
 
             if dec.msg_type == MessageType.RESPONSE:
                 if dec.cmd in [B0CommandName.SETTINGS_35, B0CommandName.SETTINGS_42]:
