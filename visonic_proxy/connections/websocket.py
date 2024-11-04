@@ -13,7 +13,7 @@ from websockets.server import serve
 
 from visonic_proxy import __VERSION__
 
-from ..const import VIS_ACK, ConnectionName, MsgLogLevel
+from ..const import ACK, VIS_ACK, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..managers.storage_manager import DataStore
 from ..message import QueuedMessage
@@ -553,6 +553,10 @@ class VisonicClient:
             if setting:
                 self.waiting_for.remove(f"{cmd}_{setting}")
             else:
+                # If command in invalid list, remove as has been successfully received now
+                if self.proxy.invalid_commands.get(cmd):
+                    self.proxy.invalid_commands[cmd] = 0
+
                 self.waiting_for.remove(cmd)
         except ValueError:
             pass
@@ -561,66 +565,83 @@ class VisonicClient:
         """Process received message."""
         self.last_received = dt.datetime.now()
         # Requires ACK
-        if data.hex(" ") not in ["0d 02 43 ba 0a", "0d 02 fd 0a"]:
-            self.cb_send_message(bytes.fromhex("0d 02 43 ba 0a"))
+        if data.hex(" ") in [ManagedMessages.ACK, ManagedMessages.PL_ACK]:
+            self.register_received_message(ACK)
         else:
-            self.register_received_message("02")
+            self.cb_send_message(bytes.fromhex(ManagedMessages.PL_ACK))
 
-        message_class = data[1:2].hex()
-        if message_class == MessageClass.B0:
-            try:
-                dec = self.message_decoder.decode(data)
-                # _LOGGER.info("DEC: %s", dec)
+            message_class = data[1:2].hex()
+            if message_class == MessageClass.B0:
+                try:
+                    dec = self.message_decoder.decode(data)
+                    _LOGGER.info("DEC: %s", dec, extra=MsgLogLevel.L1)
 
-                if dec.msg_type == 3 and dec.page == 255:
-                    if dec.cmd in ["35", "42"]:
-                        self.register_received_message(f"{dec.cmd}_{dec.setting}")
+                    if dec.cmd == B0CommandName.INVALID_COMMAND:
+                        # If waiting multiple - do not know which is invalid.
+                        # Therefore only register invalid if sure which is invalid
+                        # ie list only has 1 entry
+                        if len(self.waiting_for) == 1:
+                            self.registered_invalid_command(self.waiting_for[0])
+
+                        # clear wiating for.
+                        self.waiting_for = []
+
                     else:
-                        self.register_received_message(dec.cmd)
+                        self.proxy.loop.create_task(
+                            self.process_message(message_class, dec)
+                        )
+                except Exception as ex:  # noqa: BLE001
+                    _LOGGER.error(ex)
 
-                if dec.cmd == "0f":
-                    self.register_received_message("b0", dec.cmd)
+            elif message_class == MessageClass.E0:
+                # Process E0 message from CM.
+                # 0a e0 <alarm connections> <visonic connections> <monitor connections> <stealth mode> <download mode> <crc> 0d
 
-                if dec.cmd == "06":
-                    # Invalid request - clear wiating for.
-                    self.waiting_for = []
+                self.register_received_message(message_class)
+                stealth = data[6] == 1
+                download = data[7] == 1
 
-                self.proxy.loop.create_task(self.process_message("b0", dec))
-            except Exception as ex:  # noqa: BLE001
-                _LOGGER.error(ex)
+                cm_status = CMStatus(
+                    alarm_connections=data[2],
+                    visonic_connections=data[3],
+                    monitor_connections=data[4],
+                    proxy_mode=data[5] == 1,
+                    stealth_mode=stealth,
+                    download_mode=download,
+                )
 
-        elif message_class == MessageClass.E0:
-            # Process E0 message from CM.
-            # 0a e0 <alarm connections> <visonic connections> <monitor connections> <stealth mode> <download mode> <crc> 0d
+                _LOGGER.debug("STATUS: %s", cm_status)
+                # Set stealth mode event for anything waiting on it
+                if stealth:
+                    self.stealth_mode.set()
+                elif self.stealth_mode.is_set():
+                    self.stealth_mode.clear()
 
-            self.register_received_message("e0")
-            stealth = data[6] == 1
-            download = data[7] == 1
+                self.proxy.loop.create_task(
+                    self.process_message(message_class, cm_status)
+                )
 
-            cm_status = CMStatus(
-                alarm_connections=data[2],
-                visonic_connections=data[3],
-                monitor_connections=data[4],
-                proxy_mode=data[5] == 1,
-                stealth_mode=stealth,
-                download_mode=download,
+            else:
+                # Process std message and store data.
+                dec = STDMessageDecoder().decode(data)
+                self.register_received_message(dec.cmd)
+                self.proxy.loop.create_task(self.process_message(MessageClass.STD, dec))
+
+    def registered_invalid_command(self, command: str):
+        """Register a command as invalid after receiving a 06 reponse to a B0 message."""
+        if not self.proxy.invalid_commands.get(command):
+            self.proxy.invalid_commands[command] = 1
+        else:
+            self.proxy.invalid_commands[command] = (
+                self.proxy.invalid_commands[command] + 1
             )
 
-            _LOGGER.debug("STATUS: %s", cm_status)
-            # Set stealth mode event for anything waiting on it
-            if stealth:
-                self.stealth_mode.set()
-            elif self.stealth_mode.is_set():
-                self.stealth_mode.clear()
-
-            self.proxy.loop.create_task(self.process_message("e0", cm_status))
-
-        else:
-            # Process std message and store data.
-            dec = STDMessageDecoder().decode(data)
-            # _LOGGER.info("STDDEC: %s", dec)
-            self.register_received_message(dec.cmd)
-            self.proxy.loop.create_task(self.process_message("std", dec))
+    def is_invalid_command(self, command: str) -> bool:
+        """If command has been registered invalid due to 06 reponse."""
+        if count := self.proxy.invalid_commands.get(command):
+            if count >= self.proxy.config.INVALID_MESSAGE_THRESHOLD:
+                return True
+        return False
 
     async def process_message(
         self, message_class: str, dec: B0Message | STDMessage | CMStatus
@@ -629,6 +650,7 @@ class VisonicClient:
         data_changed = False
         if message_class == MessageClass.STD and dec.cmd == "3f":
             self.datastore.store_eprom(dec.start, dec.data)
+            self.register_received_message(dec.cmd)
         elif message_class == MessageClass.B0:
             if dec.cmd in [B0CommandName.SETTINGS_35, B0CommandName.SETTINGS_42]:
                 data_changed = self.datastore.store(
@@ -640,6 +662,7 @@ class VisonicClient:
                     dec.data,
                     dec.raw_data,
                 )
+                self.waiting_for.remove(f"{dec.cmd}_{dec.setting}")
             elif dec.cmd not in [B0CommandName.INVALID_COMMAND]:
                 data_changed = self.datastore.store(
                     STATUS,
@@ -650,24 +673,27 @@ class VisonicClient:
                     dec.data,
                     dec.raw_data,
                 )
+                self.register_received_message(dec.cmd)
 
             if dec.msg_type == MessageType.RESPONSE:
                 if dec.cmd in [B0CommandName.SETTINGS_35, B0CommandName.SETTINGS_42]:
                     setting_name = get_lookup_value(Command35Settings, dec.setting)
-                    _LOGGER.debug(
+                    _LOGGER.info(
                         "SETTING: %s: %s",
                         f"{setting_name} ({dec.setting})",
                         self.datastore.get_setting(
                             f"{dec.setting}_{setting_name}",
                             dec.cmd == B0CommandName.SETTINGS_42,
                         ),
+                        extra=MsgLogLevel.L4,
                     )
                 else:
                     command_name = get_lookup_value(B0CommandName, dec.cmd)
-                    _LOGGER.debug(
+                    _LOGGER.info(
                         "STATUS: %s: %s",
                         f"{command_name} ({dec.cmd})",
                         self.datastore.get_status(f"{dec.cmd}_{command_name}"),
+                        extra=MsgLogLevel.L4,
                     )
 
             # Response to a 51 message
@@ -724,7 +750,7 @@ class VisonicClient:
                 i = 0
                 _LOGGER.warning("TIMEOUT WAITING FOR: %s", self.waiting_for)
                 # If only waiting for ACK, move on.
-                if self.waiting_for == ["02"]:
+                if self.waiting_for == [ACK]:
                     self.waiting_for = []
                     continue
                 if retry < retries:
@@ -787,17 +813,17 @@ class VisonicClient:
             if msg.cmd == "download":
                 if msg.state:
                     send_msg = bytes.fromhex(ManagedMessages.DOWNLOAD)
-                    wait_for = ["02", "3c"]
+                    wait_for = [ACK, "3c"]
                 else:
                     send_msg = bytes.fromhex(ManagedMessages.EXIT_DOWNLOAD_MODE)
                     wait_for = []  # ["02", "e0"]
             elif msg.cmd == "stealth":
                 if msg.state:
                     send_msg = bytes.fromhex(ManagedMessages.ENABLE_STEALTH)
-                    wait_for = ["02", "e0"]
+                    wait_for = [ACK, "e0"]
                 else:
                     send_msg = bytes.fromhex(ManagedMessages.DISABLE_STEALTH)
-                    wait_for = ["02", "e0"]
+                    wait_for = [ACK, "e0"]
         else:
             send_msg = msg
 
@@ -842,10 +868,17 @@ class VisonicClient:
         status_name = f"{status_id}_{get_lookup_value(B0CommandName, status_id)}"
 
         if refresh or self.datastore.get_status(status_name) is None:
-            msg = self.message_builder.message_preprocessor(
-                bytes.fromhex(f"b0 {status_id}")
-            )
-            await self.send_message_and_wait(msg.data, ["02", str(status_id)])
+            if not self.is_invalid_command(status_id):
+                msg = self.message_builder.message_preprocessor(
+                    bytes.fromhex(f"b0 {status_id}")
+                )
+                await self.send_message_and_wait(msg.data, [ACK, str(status_id)])
+            else:
+                _LOGGER.debug(
+                    "Command %s requested which has been marked as invalid for this panel",
+                    status_id,
+                    extra=MsgLogLevel.L2,
+                )
 
         if key:
             return (
@@ -865,7 +898,7 @@ class VisonicClient:
             msg = self.message_builder.message_preprocessor(
                 bytes.fromhex(f"b0 35 {setting_id.hex(" ")}")
             )
-            await self.send_message_and_wait(msg.data, ["02", f"35_{setting!s}"])
+            await self.send_message_and_wait(msg.data, [ACK, f"35_{setting!s}"])
 
         return self.datastore.get_setting(setting_name)
 
@@ -907,7 +940,7 @@ class VisonicClient:
             request_list = list(statuses[i : i + per_request])
             request = f"b0 17 {" ".join(request_list)}"
             msg = self.message_builder.message_preprocessor(bytes.fromhex(request))
-            wait_for.append("02")
+            wait_for.append(ACK)
             await self.send_message_and_wait(msg.data, wait_for)
 
         if set_stealth:
@@ -936,7 +969,7 @@ class VisonicClient:
             ]
             request = f"b0 35 {" ".join(request_list)}"
             msg = self.message_builder.message_preprocessor(bytes.fromhex(request))
-            wait_for.append("02")
+            wait_for.append(ACK)
             await self.send_message_and_wait(msg.data, wait_for)
 
         if set_stealth:
@@ -1383,7 +1416,7 @@ class VisonicClient:
         )
 
         if message:
-            await self.send_message_and_wait(message.data, ["02"])
+            await self.send_message_and_wait(message.data, [ACK])
             msg = self.message_builder.message_preprocessor(
                 bytes.fromhex("b0 17 19 24")
             )
@@ -1423,5 +1456,5 @@ class VisonicClient:
             )
 
         if message:
-            await self.send_message_and_wait(message.data, ["02"])
+            await self.send_message_and_wait(message.data, [ACK])
             return True

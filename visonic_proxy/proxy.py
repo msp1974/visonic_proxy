@@ -50,6 +50,7 @@ class Proxy:
         self.config = Config()
         self.clients = Clients()
         self.events = Events(self.loop)
+        self.invalid_commands: dict[str, int] = {}
         self.message_tracker = MessageTracker()
         self.status = SystemStatus()
 
