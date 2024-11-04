@@ -4,10 +4,6 @@ from collections import namedtuple
 from enum import IntEnum, StrEnum
 import logging
 
-LOG_LEVEL = logging.INFO
-LOG_TO_FILE = False
-LOG_FILES_TO_KEEP = 10
-
 
 class Config:
     """Config settings."""
@@ -17,7 +13,10 @@ class Config:
     # 3 same as 2 plus sent ACKs
     # 4 same as 3 plus received messages
     # 5 same as 4 plus ack waiting messages and builder messages
+    LOG_LEVEL = logging.INFO
     MESSAGE_LOG_LEVEL = 3
+    LOG_FILE = ""
+    LOG_FILES_TO_KEEP = 10
 
     PROXY_MODE = True
 
