@@ -9,8 +9,8 @@ from .const import (
     LOG_FILES_TO_KEEP,
     LOG_LEVEL,
     LOG_TO_FILE,
-    MESSAGE_LOG_LEVEL,
     Colour,
+    Config,
 )
 
 DEBUG_FORMAT = "%(asctime)s %(levelname)-8s %(fileline)-20s %(message)s"
@@ -23,7 +23,7 @@ class MessageLevelFilter(logging.Filter):
     def filter(self, record):
         """Apply filter."""
         if (
-            record.__dict__.get("msglevel", 0) <= MESSAGE_LOG_LEVEL
+            record.__dict__.get("msglevel", 0) <= Config.MESSAGE_LOG_LEVEL
             or record.levelno == logging.DEBUG
         ):
             return True
