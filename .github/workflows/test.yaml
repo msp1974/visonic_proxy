@@ -1,0 +1,52 @@
+name: "Test"
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+
+jobs:
+  init:
+    name: Initialize build
+    runs-on: ubuntu-latest
+    outputs:
+      architectures: ${{ steps.info.outputs.architectures }}
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Get information
+        id: info
+        uses: home-assistant/actions/helpers/info@master
+
+  build:
+    name: Test action build
+    needs: init
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: False
+      matrix:
+        architecture: ${{ fromJson(needs.init.outputs.architectures) }}
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Build the builder
+        uses: home-assistant/builder@latest
+        with:
+          args: |
+            --test \
+            --amd64 \
+            --target /data \
+            --generic latest
+
+      - name: Test ${{ matrix.architecture }} builder
+        uses: ./
+        with:
+          args: |
+            --test \
+            --${{ matrix.architecture }} \
+            --target /data \
+            --generic ${{ github.sha }}
+          pull: "false"
