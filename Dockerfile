@@ -8,7 +8,7 @@ COPY requirements.txt /tmp/
 
 
 RUN \
-    apk add --no-cache .build-dependencies \
+    apk add --no-cache \
         python3-dev=3.12.8-r1 \
     \
     && apk add --no-cache \
