@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build the builder
-        uses: home-assistant/builder
+        uses: home-assistant/builder@latest
         with:
           args: |
             --test \
