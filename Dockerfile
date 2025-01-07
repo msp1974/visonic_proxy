@@ -8,7 +8,7 @@ COPY requirements.txt /tmp/
 
 
 RUN \
-    apk add --no-cache --virtual .build-dependencies \
+    apk add --no-cache .build-dependencies \
         python3-dev=3.12.8-r1 \
     \
     && apk add --no-cache \
@@ -28,3 +28,8 @@ WORKDIR /data
 RUN chmod a+x /run.sh
 
 CMD [ "/run.sh" ]
+
+LABEL \
+  io.hass.version="1.0.8" \
+  io.hass.type="addon" \
+  io.hass.arch="armhf|aarch64|i386|amd64|armv7"
