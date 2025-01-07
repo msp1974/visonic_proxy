@@ -1,0 +1,10 @@
+# https://developers.home-assistant.io/docs/add-ons/configuration#add-on-dockerfile
+build_from:
+  aarch64: ghcr.io/hassio-addons/base:17.0.2
+  amd64: ghcr.io/hassio-addons/base:17.0.2
+  armv7: ghcr.io/hassio-addons/base:17.0.2
+labels:
+  org.opencontainers.image.title: "Home Assistant Add-on: Visonic Proxy"
+  org.opencontainers.image.description: "Addon to provide proxy for Visonic Alarm"
+  org.opencontainers.image.source: "https://github.com/msp1974/visonic_proxy"
+  org.opencontainers.image.licenses: "Apache License 2.0"
