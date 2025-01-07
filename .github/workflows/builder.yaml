@@ -18,8 +18,6 @@
         name: Initialize builds
         outputs:
           changed_files: ${{ steps.changed_files.outputs.all }}
-          changed_addons: ${{ steps.changed_addons.outputs.addons }}
-          changed: ${{ steps.changed_addons.outputs.changed }}
         steps:
           - name: Check out the repository
             uses: actions/checkout@v4.2.2
@@ -28,48 +26,12 @@
             id: changed_files
             uses: masesgroup/retrieve-changed-files@v3.0.0
     
-          - name: Get add-ons
-            id: addons
-            run: |
-              declare -a addons
-              for addon in $(find ./ -name config.yaml | cut -d "/" -f2 | sort -u); do
-                addons+=("$addon");
-              done
-              echo "addons=${addons[@]}" >> "$GITHUB_OUTPUT"
-    
-          - name: Get changed add-ons
-            id: changed_addons
-            run: |
-              declare -a changed_addons
-              for addon in ${{ steps.addons.outputs.addons }}; do
-                if [[ "${{ steps.changed_files.outputs.all }}" =~ $addon ]]; then
-                  for file in ${{ env.MONITORED_FILES }}; do
-                      if [[ "${{ steps.changed_files.outputs.all }}" =~ $addon/$file ]]; then
-                        if [[ ! "${changed_addons[@]}" =~ $addon ]]; then
-                          changed_addons+=("\"${addon}\",");
-                        fi
-                      fi
-                  done
-                fi
-              done
-    
-              changed=$(echo ${changed_addons[@]} | rev | cut -c 2- | rev)
-              if [[ -n ${changed} ]]; then
-                echo "Changed add-ons: $changed";
-                echo "changed=true" >> "$GITHUB_OUTPUT";
-                echo "addons=[$changed]" >> "$GITHUB_OUTPUT";
-              else
-                echo "No add-on had any monitored files changed (${{ env.MONITORED_FILES }})";
-              fi
-    
       build:
         needs: init
         runs-on: ubuntu-latest
-        if: needs.init.outputs.changed == 'true'
-        name: Build ${{ matrix.arch }} ${{ matrix.addon }} add-on
+        name: Build ${{ matrix.arch }} for Visonic Proxy add-on
         strategy:
           matrix:
-            addon: ${{ fromJson(needs.init.outputs.changed_addons) }}
             arch: ["aarch64", "amd64", "armhf", "armv7", "i386"]
     
         steps:
@@ -79,8 +41,6 @@
           - name: Get information
             id: info
             uses: home-assistant/actions/helpers/info@master
-            with:
-              path: "./${{ matrix.addon }}"
     
           - name: Check add-on
             id: check
@@ -88,7 +48,7 @@
               if [[ "${{ steps.info.outputs.architectures }}" =~ ${{ matrix.arch }} ]]; then
                  echo "build_arch=true" >> "$GITHUB_OUTPUT";
                else
-                 echo "${{ matrix.arch }} is not a valid arch for ${{ matrix.addon }}, skipping build";
+                 echo "${{ matrix.arch }} is not a valid arch for Visonic Proxy, skipping build";
               fi
     
           - name: Set build arguments
@@ -105,12 +65,11 @@
               username: ${{ secrets.DOCKERHUB_USERNAME }}
               password: ${{ secrets.DOCKERHUB_TOKEN }}
     
-          - name: Build ${{ matrix.addon }} add-on
+          - name: Build Visonic Proxy add-on
             if: steps.check.outputs.build_arch == 'true'
             uses: home-assistant/builder@2024.08.2
             with:
               args: |
                 ${{ env.BUILD_ARGS }} \
                 --${{ matrix.arch }} \
-                --target /data/${{ matrix.addon }} \
                 --addon
