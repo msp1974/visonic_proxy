@@ -8,9 +8,9 @@
     
     on:
       pull_request:
-        branches: ["master"]
+        branches: ["dev","master"]
       push:
-        branches: ["master"]
+        branches: ["dev","master"]
     
     jobs:
       init:
