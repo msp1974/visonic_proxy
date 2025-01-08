@@ -251,11 +251,12 @@ class WebsocketServer:
             self.cb_received_data(self.name, self.client_id, data)
 
     def is_hex(self, s):
+        """Return if value is hex."""
         try:
             bytes.fromhex(s)
-            return True
         except ValueError:
             return False
+        return True
 
     async def websocket_receive_message(self, msg: dict | str):
         """Receive message from websocket."""
