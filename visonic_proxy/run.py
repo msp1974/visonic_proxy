@@ -9,6 +9,7 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
+from visonic_proxy import __VERSION__
 from visonic_proxy.connections.httpserver.make_certs import cert_gen  # noqa: E402
 from visonic_proxy.const import Config  # noqa: E402
 from visonic_proxy.logger import _LOGGER, rollover  # noqa: E402
@@ -33,6 +34,7 @@ def validate_certs():
 
 
 if __name__ == "__main__":
+    _LOGGER.info("Version: %s", __VERSION__)
     if validate_certs():
         # start a new log on each restart
         if Config.LOG_FILE:

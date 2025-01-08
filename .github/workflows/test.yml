@@ -5,8 +5,7 @@ on:
     types: [published]
   push:
     branches:
-      - master
-      - dev
+      - main
 
 env:
   GIT_TAG_NAME: dev
@@ -25,8 +24,8 @@ jobs:
         id: info
         uses: home-assistant/actions/helpers/info@master
 
-  publish:
-    name: Publish builder
+  build:
+    name: Test action build
     needs: init
     runs-on: ubuntu-latest
     permissions:

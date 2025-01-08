@@ -1,3 +1,3 @@
 """Visonic Alarm PowerLink 3.1 Proxy."""
 
-__VERSION__ = "1.0.8"
+__VERSION__ = "1.0.9"
