@@ -130,9 +130,7 @@ class WebsocketServer:
 
             self.client_connected()
 
-            _LOGGER.info(
-                "Websocket server listening on %s port %s", self.host, self.port
-            )
+            _LOGGER.info("Websocket server listening on port %s", self.port)
 
     async def run_server(self):
         """Run websocket server.

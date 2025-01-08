@@ -97,20 +97,18 @@ class ServerConnection:
         """Start server to allow Alarm to connect."""
         try:
             self.server = await self.proxy.loop.create_server(
-                lambda: ConnectionProtocol(
+                protocol_factory=lambda: ConnectionProtocol(
                     self.name,
                     self.client_connected,
                     self.client_disconnected,
                     self.data_received,
                 ),
-                self.host,
-                self.port,
+                port=self.port,
                 family=AF_INET,
             )
             _LOGGER.info(
-                "Listening for %s connection on %s port %s",
+                "Listening for %s connection on port %s",
                 self.name,
-                self.host,
                 self.port,
             )
 

@@ -161,7 +161,6 @@ class Webserver:
     def __init__(self, proxy: Proxy):
         """Init."""
         self.proxy = proxy
-        self.host = "0.0.0.0"
         self.port = self.proxy.config.WEBSERVER_PORT
         self.http_server = HttpServer()
         self.running: bool = True
@@ -181,7 +180,7 @@ class Webserver:
         """Start webserver."""
         self.http_server.add_handler(MyHandler(self.proxy, self.request_connect))
         # start the server and serve/wait forever
-        await self.http_server.start(self.host, self.port)
+        await self.http_server.start("0.0.0.0", self.port)
         with contextlib.suppress(RuntimeError):
             await self.http_server.serve_forever()
 
@@ -191,7 +190,7 @@ class Webserver:
             self._webserver(), name="WebServer"
         )
         self.running = True
-        _LOGGER.info("Webserver listening on %s port %s", self.host, self.port)
+        _LOGGER.info("Webserver listening on port %s", self.port)
 
     async def stop(self):
         """Stop webserver."""
