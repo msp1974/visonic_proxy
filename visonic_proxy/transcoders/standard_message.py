@@ -30,6 +30,8 @@ class StandardCommand(StrEnum):
 
 @dataclass
 class STDMessage:
+    """Class to hold standard message structure."""
+
     cmd: str
     start: int = 0
     data: dict = field(default_factory={})
