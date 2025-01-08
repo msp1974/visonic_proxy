@@ -60,7 +60,7 @@ class MessageRouter:
         self.command_manager.start(self.cb_send_message)
 
         self.status = MessageCoordinatorStatus.RUNNING
-        _LOGGER.info("Message Router started")
+        _LOGGER.info("Started Message Router")
 
     async def stop(self):
         """Stop message coordinator."""
@@ -73,7 +73,7 @@ class MessageRouter:
             unsub()
 
         self.status = ManagerStatus.STOPPED
-        _LOGGER.info("Message Router stopped")
+        _LOGGER.info("Stopped Message Router")
 
     async def process_message(self, message: RoutableMessage):
         """Update status from certain messages."""

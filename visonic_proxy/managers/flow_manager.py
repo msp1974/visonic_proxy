@@ -122,7 +122,7 @@ class FlowManager:
         self.rts.set()
         self.pending_has_connected.set()
 
-        _LOGGER.info("Flow Manager started")
+        _LOGGER.info("Started Flow Manager")
 
     async def stop(self):
         """Shutdown flow manager."""
@@ -137,7 +137,7 @@ class FlowManager:
         if self.message_receiver_task and not self.message_receiver_task.done():
             self.message_receiver_task.cancel()
 
-        _LOGGER.info("Flow Manager stopped")
+        _LOGGER.info("Stopped Flow Manager")
 
     def set_panel_data(self, panel_id: str, account_id: str):
         """Set panel data in message builder."""

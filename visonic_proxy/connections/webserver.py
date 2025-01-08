@@ -190,7 +190,7 @@ class Webserver:
             self._webserver(), name="WebServer"
         )
         self.running = True
-        _LOGGER.info("Webserver listening on port %s", self.port)
+        _LOGGER.info("Started HTTP server on port %s", self.port)
 
     async def stop(self):
         """Stop webserver."""
@@ -200,4 +200,4 @@ class Webserver:
         if self.server_task and not self.server_task.done():
             self.server_task.cancel()
         self.running = False
-        _LOGGER.info("Webserver stopped")
+        _LOGGER.info("Stopped HTTP server")

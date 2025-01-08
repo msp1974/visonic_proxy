@@ -130,7 +130,7 @@ class WebsocketServer:
 
             self.client_connected()
 
-            _LOGGER.info("Websocket server listening on port %s", self.port)
+            _LOGGER.info("Started Websocket server on port %s", self.port)
 
     async def run_server(self):
         """Run websocket server.
@@ -171,7 +171,7 @@ class WebsocketServer:
         if self.server_task and not self.server_task.done():
             self.server_task.cancel()
 
-        _LOGGER.info("Websocket server stopped")
+        _LOGGER.info("Stopped Websocket server")
 
     def client_connected(self):
         """Handle client connection."""

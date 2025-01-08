@@ -107,7 +107,7 @@ class ServerConnection:
                 family=AF_INET,
             )
             _LOGGER.info(
-                "Listening for %s connection on port %s",
+                "Started %s TCP server on port %s",
                 self.name,
                 self.port,
             )
@@ -130,7 +130,7 @@ class ServerConnection:
                     ]
                 )
         except OSError as ex:
-            _LOGGER.error("Unable to start %s server. Error is %s", self.name, ex)
+            _LOGGER.error("Unable to start %s TCP server. Error is %s", self.name, ex)
 
     def client_connected(self, transport: asyncio.Transport):
         """Handle connection callback."""
@@ -313,6 +313,7 @@ class ServerConnection:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
+            _LOGGER.info("Stopped %s TCP server", self.name)
 
     async def keep_alive_timer(self):
         """Keep alive timer.
