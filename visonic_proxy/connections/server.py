@@ -114,7 +114,9 @@ class ServerConnection:
 
             # Start watchdog timer
             if self.run_watchdog:
-                self.watchdog = Watchdog(self.proxy, self.name, 120)
+                self.watchdog = Watchdog(
+                    self.proxy, self.name, self.proxy.config.WATCHDOG_TIMEOUT
+                )
                 self.watchdog.start()
 
                 # listen for watchdog events
