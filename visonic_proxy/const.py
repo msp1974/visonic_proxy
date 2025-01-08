@@ -26,6 +26,7 @@ class Config:
     MESSAGE_PORT = 5001
     ALARM_MONITOR_PORT = 5002
     WEBSOCKET_PORT = 8082
+    WEBSERVER_PORT = 8443
 
     VISONIC_RECONNECT_INTERVAL = 10  # Freq CM will reconnect Visonic after disconnect
     KEEPALIVE_TIMER = 32  # Send Keepalive if no messages in 30 seconds
