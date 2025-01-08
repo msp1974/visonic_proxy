@@ -1,6 +1,6 @@
 name: "Visonic Proxy"
 description: "Visonic Proxy Server for Using Powerlink with Visonic Integration"
-version: "1.0.7"
+version: "1.0.8"
 slug: "visonic_proxy"
 url: https://github.com/msp1974/visonic_proxy
 init: false
@@ -8,6 +8,8 @@ arch:
   - aarch64
   - amd64
   - armv7
+  - armhf
+  - i386
 startup: services
 host_network: false
 ports:
