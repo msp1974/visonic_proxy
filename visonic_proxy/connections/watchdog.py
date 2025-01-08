@@ -46,7 +46,7 @@ class Watchdog:
         ]
 
         self._schedule_next_run()
-        _LOGGER.info("Started %s Watchdog Timer", self.name, extra=MsgLogLevel.L2)
+        _LOGGER.info("Started %s Connection Watchdog", self.name, extra=MsgLogLevel.L5)
 
     def _schedule_next_run(self):
         """Schedule next run of watchdog."""
