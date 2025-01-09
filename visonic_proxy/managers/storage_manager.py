@@ -30,7 +30,7 @@ class DataStore:
                 if isinstance(d2[key], list):
                     d[key].extend(d2[key])
                 else:
-                    d[key].append(d2[key])
+                    d[key].update(d2[key])
             else:
                 d[key] = d2[key]
 
