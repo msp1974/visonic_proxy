@@ -97,26 +97,26 @@ class ServerConnection:
         """Start server to allow Alarm to connect."""
         try:
             self.server = await self.proxy.loop.create_server(
-                lambda: ConnectionProtocol(
+                protocol_factory=lambda: ConnectionProtocol(
                     self.name,
                     self.client_connected,
                     self.client_disconnected,
                     self.data_received,
                 ),
-                self.host,
-                self.port,
+                port=self.port,
                 family=AF_INET,
             )
             _LOGGER.info(
-                "Listening for %s connection on %s port %s",
+                "Started %s TCP server on port %s",
                 self.name,
-                self.host,
                 self.port,
             )
 
             # Start watchdog timer
             if self.run_watchdog:
-                self.watchdog = Watchdog(self.proxy, self.name, 120)
+                self.watchdog = Watchdog(
+                    self.proxy, self.name, self.proxy.config.WATCHDOG_TIMEOUT
+                )
                 self.watchdog.start()
 
                 # listen for watchdog events
@@ -130,7 +130,7 @@ class ServerConnection:
                     ]
                 )
         except OSError as ex:
-            _LOGGER.error("Unable to start %s server. Error is %s", self.name, ex)
+            _LOGGER.error("Unable to start %s TCP server. Error is %s", self.name, ex)
 
     def client_connected(self, transport: asyncio.Transport):
         """Handle connection callback."""
@@ -313,6 +313,7 @@ class ServerConnection:
         if self.server:
             self.server.close()
             await self.server.wait_closed()
+            _LOGGER.info("Stopped %s TCP server", self.name)
 
     async def keep_alive_timer(self):
         """Keep alive timer.

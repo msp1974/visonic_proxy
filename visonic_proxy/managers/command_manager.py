@@ -38,7 +38,7 @@ class CommandManager:
                 ),
             ]
         )
-        _LOGGER.info("Command Manager started")
+        _LOGGER.info("Started Command Manager")
 
     async def stop(self):
         """Stop command manager."""
@@ -46,7 +46,7 @@ class CommandManager:
         if self._unsubscribe_listeners:
             for unsub in self._unsubscribe_listeners:
                 unsub()
-        _LOGGER.info("Command Manager stopped")
+        _LOGGER.info("Stopped Command Manager")
 
     async def send_keepalive(self, event: Event):
         """Handle sending keepalive."""

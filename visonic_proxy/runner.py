@@ -51,7 +51,7 @@ class VisonicProxy:
         await self.connection_manager.start()
 
         if self.connection_manager.status == ManagerStatus.RUNNING:
-            _LOGGER.info("Proxy Server running")
+            _LOGGER.info("Proxy Server is running")
 
         while self.connection_manager.status != MessageCoordinatorStatus.STOPPED:
             await asyncio.sleep(10)

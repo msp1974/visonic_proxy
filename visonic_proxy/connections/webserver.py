@@ -41,7 +41,7 @@ class MyHandler:
         try:
             s = requests.Session()
             return s.post(
-                f"https://{self.proxy.config.VISONIC_HOST}:8443{request.path}",
+                f"https://{self.proxy.config.VISONIC_HOST}:{self.proxy.config.WEBSERVER_PORT}{request.path}",
                 params=request.query_params,
                 headers=request.headers,
                 data=request.body,
@@ -82,7 +82,15 @@ class MyHandler:
                         response = {}
 
                     if Connect.request_connect:
-                        resp = b'{"cmds":[{"name":"connect","params":{"port":5001}}],"ka_time":10,"version":3}\n'
+                        resp = {}
+                        resp["cmds"] = [
+                            {
+                                "name": "connect",
+                                "params": {"port": self.proxy.config.MESSAGE_PORT},
+                            }
+                        ]
+                        resp.update({"ka_time": 10, "version": 3})
+                        resp = bytes(f"{json.dumps(resp)}\n", "ascii")
                     else:
                         resp = res.content
 
@@ -111,7 +119,12 @@ class MyHandler:
             resp = {}
             if Connect.request_connect:
                 _LOGGER.info("Webserver sent request to connect", extra=MsgLogLevel.L1)
-                resp["cmds"] = [{"name": "connect", "params": {"port": 5001}}]
+                resp["cmds"] = [
+                    {
+                        "name": "connect",
+                        "params": {"port": self.proxy.config.MESSAGE_PORT},
+                    }
+                ]
 
             resp.update({"ka_time": 10, "version": 3})
             response = json.dumps(resp)
@@ -148,8 +161,7 @@ class Webserver:
     def __init__(self, proxy: Proxy):
         """Init."""
         self.proxy = proxy
-        self.host = "0.0.0.0"
-        self.port = 8443
+        self.port = self.proxy.config.WEBSERVER_PORT
         self.http_server = HttpServer()
         self.running: bool = True
         self.server_task: asyncio.Task
@@ -168,7 +180,7 @@ class Webserver:
         """Start webserver."""
         self.http_server.add_handler(MyHandler(self.proxy, self.request_connect))
         # start the server and serve/wait forever
-        await self.http_server.start(self.host, self.port)
+        await self.http_server.start("0.0.0.0", self.port)
         with contextlib.suppress(RuntimeError):
             await self.http_server.serve_forever()
 
@@ -178,7 +190,7 @@ class Webserver:
             self._webserver(), name="WebServer"
         )
         self.running = True
-        _LOGGER.info("Webserver listening on %s port %s", self.host, self.port)
+        _LOGGER.info("Started HTTP server on port %s", self.port)
 
     async def stop(self):
         """Stop webserver."""
@@ -188,4 +200,4 @@ class Webserver:
         if self.server_task and not self.server_task.done():
             self.server_task.cancel()
         self.running = False
-        _LOGGER.info("Webserver stopped")
+        _LOGGER.info("Stopped HTTP server")

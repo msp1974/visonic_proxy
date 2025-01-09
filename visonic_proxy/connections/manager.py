@@ -102,7 +102,7 @@ class ConnectionManager:
 
         # Start HTTPS webserver
         if not self.webserver_task:
-            _LOGGER.info("Starting Webserver")
+            _LOGGER.info("Starting HTTP server", extra=MsgLogLevel.L4)
             self.webserver = Webserver(self.proxy)
             await self.webserver.start()
 
@@ -123,7 +123,7 @@ class ConnectionManager:
         await self.flow_manager.stop()
 
         # Stop webserver
-        _LOGGER.info("Stopping Webserver")
+        _LOGGER.debug("Stopping HTTP server")
         await self.webserver.stop()
 
         # Stop clients

@@ -130,9 +130,7 @@ class WebsocketServer:
 
             self.client_connected()
 
-            _LOGGER.info(
-                "Websocket server listening on %s port %s", self.host, self.port
-            )
+            _LOGGER.info("Started Websocket server on port %s", self.port)
 
     async def run_server(self):
         """Run websocket server.
@@ -173,7 +171,7 @@ class WebsocketServer:
         if self.server_task and not self.server_task.done():
             self.server_task.cancel()
 
-        _LOGGER.info("Websocket server stopped")
+        _LOGGER.info("Stopped Websocket server")
 
     def client_connected(self):
         """Handle client connection."""
@@ -251,11 +249,12 @@ class WebsocketServer:
             self.cb_received_data(self.name, self.client_id, data)
 
     def is_hex(self, s):
+        """Return if value is hex."""
         try:
             bytes.fromhex(s)
-            return True
         except ValueError:
             return False
+        return True
 
     async def websocket_receive_message(self, msg: dict | str):
         """Receive message from websocket."""

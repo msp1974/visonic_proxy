@@ -19,11 +19,11 @@ class Watchdog:
     Fires a disconnection event if last activity is longer than inactive period
     """
 
-    def __init__(self, proxy: Proxy, name: ConnectionName, inactive_period: int = 120):
+    def __init__(self, proxy: Proxy, name: ConnectionName, inactive_period: int):
         """Initialise."""
         self.proxy = proxy
         self.name = name
-        self.inactive_period: int = inactive_period
+        self.inactive_period = inactive_period
         self._run_watchdog: bool = True
         self._last_activity_tracker: dict[str, dt.datetime] = {}
         self._task: asyncio.Task = None
@@ -46,7 +46,7 @@ class Watchdog:
         ]
 
         self._schedule_next_run()
-        _LOGGER.info("Started %s Watchdog Timer", self.name, extra=MsgLogLevel.L2)
+        _LOGGER.info("Started %s Connection Watchdog", self.name, extra=MsgLogLevel.L5)
 
     def _schedule_next_run(self):
         """Schedule next run of watchdog."""
