@@ -30,7 +30,7 @@ class Config:
 
     VISONIC_RECONNECT_INTERVAL = 10  # Freq CM will reconnect Visonic after disconnect
     KEEPALIVE_TIMER = 32  # Send Keepalive if no messages in 30 seconds
-    WATHCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill it.
+    WATCHDOG_TIMEOUT = 120  # If no received message on connection for 120s, kill it.
     ACK_TIMEOUT = 5  # How long to wait for ACK before continuing
 
     STEALTH_MODE_TIMEOUT = (
