@@ -250,13 +250,14 @@ class MessageRouter:
             # As we do not forward this disconnect message to the Alarm in order to keep it
             # connected, we need to send something to the Alarm to keep the message IDs in sync.
             # So, send a KEEPALIVE message to do this.
-            self.proxy.events.fire_event(
-                Event(
-                    name=ConnectionName.ALARM,
-                    event_type=EventType.SEND_KEEPALIVE,
-                    client_id=message.source_client_id,
+            if self.proxy.config.SEND_KEEPALIVE_ON_VISONIC_DISCONNECT_REQUEST:
+                self.proxy.events.fire_event(
+                    Event(
+                        name=ConnectionName.ALARM,
+                        event_type=EventType.SEND_KEEPALIVE,
+                        client_id=message.source_client_id,
+                    )
                 )
-            )
         else:
             # Forward all non managed messages to the Alarm connection
             await self.forward_message(

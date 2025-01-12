@@ -59,11 +59,14 @@ class Config:
     FILTER_STD_COMMANDS = ["0b"]  # Std messages from Monitor of these types are dropped
     FILTER_B0_COMMANDS = []  # B0 messages from Monitor of these types are dropped
     NO_WAIT_FOR_ACK_MESSAGES = []  # These messages will not wait for ACKs
+    SEND_KEEPALIVE_ON_VISONIC_DISCONNECT_REQUEST = False
 
     INVALID_MESSAGE_THRESHOLD = (
         2  # Number of times a 06 response is received before marking command invalid
     )
 
+
+LOGGER_NAME = "visonic_proxy"
 
 TEXT_UNKNOWN = "UNKNOWN"
 VIS_ACK = "VIS-ACK"
@@ -101,7 +104,7 @@ class ConnectionType(StrEnum):
 class ConnectionName(StrEnum):
     """Connection name enum."""
 
-    CM = "ConnMgr"
+    CM = "Proxy"
     ALARM = "Alarm"
     VISONIC = "Visonic"
     ALARM_MONITOR = "HASS"
