@@ -516,6 +516,52 @@ SYSTEM_STATUS = [
     "??",
 ]
 
+TROUBLES = [
+    "Unknown",
+    # 1
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "1 Way",
+    # 10
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Burglary Alarm",
+    "Unknown",
+    "Unknown",
+    "Tamper Memory",
+    # 20
+    "Opened",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Tamper",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    # 30
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+]
+
 EVENTS = [
     "None",
     # 1

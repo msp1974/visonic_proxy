@@ -17,7 +17,9 @@ from .helpers import (
 )
 from .refs import (
     EVENTS,
+    SENSOR_TYPES,
     SYSTEM_STATUS,
+    TROUBLES,
     ZONE_TYPES,
     IndexName,
     ZoneBrightness,
@@ -201,6 +203,50 @@ class B0Formatters:
     def format_51(self, data: list[int]):
         """Format 51 ask me message into list of hex."""
         return [d.to_bytes(1).hex() for d in data]
+
+    def format_54(self, data: list[str]):
+        """Format 54 trouble mesages into json.
+
+        exapmple: 03 2d 01 00 02 14 00 0c 02
+        0 (03) - device type (zone)
+        1 (2d) - sensor type code
+        2 (01) - zone id (0 based)
+        3 (00) - ?
+        4 (02) - open?
+        5 (14) - ?
+        6 (00) - ?
+        7 (0c) - zone name?
+        8 (02) - open ?
+        """
+        result = []
+        if not data:
+            return result
+
+        for trouble_data in data:
+            trouble = bytes.fromhex(trouble_data)
+            dev_type = get_lookup_value(IndexName, trouble[0])
+            try:
+                trouble_name = TROUBLES[trouble[5]]
+            except IndexError:
+                trouble_name = "Unknown"
+
+            t = {
+                "trouble": trouble_name,
+                "device_type": dev_type,
+                "zone": trouble[2] + 1,
+                "state": trouble[4],
+                "device_model": SENSOR_TYPES[dev_type].get(trouble[1])[0],
+                "zone_name_id": trouble[7],
+                "trouble_code": trouble[5],
+                "device_type_id": trouble[0],
+                "sub_type": trouble[1],
+                "unk3": trouble[3],
+                "unk6": trouble[6],
+                "unk8": trouble[8],
+            }
+            result.append(t)
+
+        return result
 
     def format_58(self, data: list[str]):
         """Format 58 device info.
