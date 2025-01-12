@@ -896,7 +896,7 @@ class VisonicClient:
         if refresh or self.datastore.get_setting(setting_name) is None:
             setting_id = setting.to_bytes(2, byteorder="little")
             msg = self.message_builder.message_preprocessor(
-                bytes.fromhex(f"b0 35 {setting_id.hex(" ")}")
+                bytes.fromhex(f"b0 35 {setting_id.hex(' ')}")
             )
             await self.send_message_and_wait(msg.data, [ACK, f"35_{setting!s}"])
 
@@ -916,7 +916,7 @@ class VisonicClient:
         ) and await self.can_download():
             await self.send_message_and_wait(VPCommand("download", True))
             wait_for = ["3f"]
-            msg = f"3e {int(setting_info.position).to_bytes(2, "little").hex(" ")} {setting_info.length:02x} 00 b0 00 00 00 00 00"
+            msg = f"3e {int(setting_info.position).to_bytes(2, 'little').hex(' ')} {setting_info.length:02x} 00 b0 00 00 00 00 00"
             await self.send_message_and_wait(bytes.fromhex(msg), wait_for)
             await self.send_message_and_wait(VPCommand("download", False))
 
@@ -938,7 +938,7 @@ class VisonicClient:
         for i in range(0, len(statuses), per_request):
             wait_for = [f"{status}" for status in statuses[i : i + per_request]]
             request_list = list(statuses[i : i + per_request])
-            request = f"b0 17 {" ".join(request_list)}"
+            request = f"b0 17 {' '.join(request_list)}"
             msg = self.message_builder.message_preprocessor(bytes.fromhex(request))
             wait_for.append(ACK)
             await self.send_message_and_wait(msg.data, wait_for)
@@ -967,7 +967,7 @@ class VisonicClient:
                 i.to_bytes(2, byteorder="little").hex(" ")
                 for i in settings[i : i + settings_per_request]
             ]
-            request = f"b0 35 {" ".join(request_list)}"
+            request = f"b0 35 {' '.join(request_list)}"
             msg = self.message_builder.message_preprocessor(bytes.fromhex(request))
             wait_for.append(ACK)
             await self.send_message_and_wait(msg.data, wait_for)
@@ -1001,7 +1001,7 @@ class VisonicClient:
             for eprom_setting in eprom_settings:
                 wait_for = ["3f"]
                 eprom_setting_def = EPROMSettingLookup[eprom_setting]
-                msg = f"3e {int(eprom_setting_def.position).to_bytes(2, "little").hex(" ")} {eprom_setting_def.length:02x} 00 b0 00 00 00 00 00"
+                msg = f"3e {int(eprom_setting_def.position).to_bytes(2, 'little').hex(' ')} {eprom_setting_def.length:02x} 00 b0 00 00 00 00 00"
                 await self.send_message_and_wait(bytes.fromhex(msg), wait_for)
             await self.send_message_and_wait(VPCommand("download", False))
 
@@ -1041,7 +1041,7 @@ class VisonicClient:
             eprom_settings = [setting.value for setting in EPROMSetting]
             for eprom_setting in eprom_settings:
                 eprom_setting_def = EPROMSettingLookup[eprom_setting]
-                msg = f"3e {int(eprom_setting_def.position).to_bytes(2, "little").hex(" ")} {eprom_setting_def.length:02x} 00 b0 00 00 00 00 00"
+                msg = f"3e {int(eprom_setting_def.position).to_bytes(2, 'little').hex(' ')} {eprom_setting_def.length:02x} 00 b0 00 00 00 00 00"
                 await self.send_message_and_wait(bytes.fromhex(msg), wait_for)
             await self.send_message_and_wait(VPCommand("download", False))
 
@@ -1221,7 +1221,7 @@ class VisonicClient:
                     if i.get("assigned_name_id", 255) != 255:
                         i["name"] = zone_names[i.get("assigned_name_id")]
                     else:
-                        i["name"] = f"{dev_type.title()} {d+1}"
+                        i["name"] = f"{dev_type.title()} {d + 1}"
 
                         if SENSOR_TYPES.get(dev_type):
                             try:
@@ -1242,7 +1242,7 @@ class VisonicClient:
                                     )
                                     i["device_type"] = dev_type.title()
                                     i["device_model"] = (
-                                        f"{dev_type.title()}-{i["device_type_id"]}"
+                                        f"{dev_type.title()}-{i['device_type_id']}"
                                     )
                             except KeyError:
                                 _LOGGER.error(
@@ -1410,7 +1410,7 @@ class VisonicClient:
         zone_data = bits_to_le_bytes(zones, 64)
         download_code = await self.get_setting(Command35Settings.DOWNLOAD_CODE)
 
-        data = bytes.fromhex(f"00 ff 01 03 08 {zone_data.hex(" ")}")
+        data = bytes.fromhex(f"00 ff 01 03 08 {zone_data.hex(' ')}")
         message = self.message_builder.build_b0_add_remove_message(
             MessageType.ADD if enable else MessageType.REMOVE, "19", download_code, data
         )
@@ -1441,7 +1441,7 @@ class VisonicClient:
         if duration is not None:
             # Use a 7a message to enable for duration
             data = bytes.fromhex(
-                f"01 ff 20 0b 04 {pgm_data.hex(" ")} {(duration.to_bytes(2, "little")).hex(" ")}"
+                f"01 ff 20 0b 04 {pgm_data.hex(' ')} {(duration.to_bytes(2, 'little')).hex(' ')}"
             )
             message = self.message_builder.build_b0_add_remove_message(
                 MessageType.ADD, "7a", download_code, data
@@ -1449,7 +1449,7 @@ class VisonicClient:
 
         else:
             data = bytes.fromhex(
-                f"{"01" if enable else "00"} ff 08 0b 02 {pgm_data.hex(" ")}"
+                f"{'01' if enable else '00'} ff 08 0b 02 {pgm_data.hex(' ')}"
             )
             message = self.message_builder.build_b0_add_remove_message(
                 MessageType.ADD, "27", download_code, data
