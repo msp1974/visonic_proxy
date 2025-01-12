@@ -7,6 +7,7 @@ from enum import StrEnum
 import logging
 
 from ..const import (
+    LOGGER_NAME,
     ConnectionName,
     ConnectionPriority,
     ConnectionStatus,
@@ -22,7 +23,7 @@ from .server import ServerConnection
 from .webserver import Webserver
 from .websocket import WebsocketServer
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class ConnectionCoordinatorStatus(StrEnum):

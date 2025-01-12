@@ -12,7 +12,7 @@ import time
 import requests
 import urllib3
 
-from ..const import ConnectionName, MsgLogLevel
+from ..const import LOGGER_NAME, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
 from .httpserver.server import HttpServer, uri_pattern_mapping
@@ -20,7 +20,7 @@ from .httpserver.utils import HttpHeaders, HttpRequest, HttpResponse
 
 urllib3.disable_warnings()
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class Connect:

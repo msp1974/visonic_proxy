@@ -7,19 +7,20 @@ import asyncio
 from dataclasses import dataclass
 import datetime as dt
 import logging
-import os
 from typing import Any
 
+from visonic_proxy.logger import VPLogger
+
 from .const import (
+    LOGGER_NAME,
     Config,
     ConnectionName,
     ConnectionPriority,
     ConnectionStatus,
-    MsgLogLevel,
 )
 from .events import Events
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass
@@ -40,10 +41,11 @@ class ConnectionInfo:
 class Proxy:
     """Proxy object."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop):
+    def __init__(self, loop: asyncio.AbstractEventLoop, log_class: VPLogger):
         """Initialise."""
 
         self.loop = loop
+        self.log_class = log_class
         self.panel_id: str = None
         self.account_id: str = None
         self.is_addon: bool = False
@@ -54,34 +56,6 @@ class Proxy:
         self.invalid_commands: dict[str, int] = {}
         self.message_tracker = MessageTracker()
         self.status = SystemStatus()
-
-        self.set_config_from_env_vars()
-
-    def set_config_from_env_vars(self):
-        """Set config from env vars if exist."""
-        for env in os.environ:
-            # Set is addon if SUPERVISOR_TOKEN env var exists
-            if env == "SUPERVISOR_TOKEN":
-                self.is_addon = True
-
-            if hasattr(self.config, env.upper()):
-                try:
-                    value = os.environ.get(env)
-                    if isinstance(value, str):
-                        if value.lower() == "true":
-                            value = True
-                        elif value.lower() == "false":
-                            value = False
-                    _LOGGER.info(
-                        "Setting %s to %s from config",
-                        env,
-                        value,
-                        extra=MsgLogLevel.L1,
-                    )
-                    setattr(self.config, env.upper(), value)
-                except Exception as ex:  # noqa: BLE001
-                    _LOGGER.warning("Error setting %s to %s - %s", env, value, ex)
-                    continue
 
 
 @dataclass

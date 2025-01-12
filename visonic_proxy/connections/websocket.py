@@ -13,7 +13,7 @@ from websockets.server import serve
 
 from visonic_proxy import __VERSION__
 
-from ..const import ACK, VIS_ACK, ConnectionName, MsgLogLevel
+from ..const import ACK, LOGGER_NAME, VIS_ACK, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..managers.storage_manager import DataStore
 from ..message import QueuedMessage
@@ -80,7 +80,7 @@ STATUS = "status"
 SETTINGS = "settings"
 EPROM = "eprom"
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class WebsocketServer:

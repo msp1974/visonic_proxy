@@ -9,11 +9,11 @@ import logging
 import traceback
 from typing import Callable
 
-from visonic_proxy.const import ConnectionName
+from visonic_proxy.const import LOGGER_NAME, ConnectionName
 
 ALL_CLIENTS = "all"
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class EventType(StrEnum):

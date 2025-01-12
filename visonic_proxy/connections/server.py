@@ -8,14 +8,14 @@ import itertools
 import logging
 from socket import AF_INET
 
-from ..const import VIS_ACK, ConnectionName, MsgLogLevel
+from ..const import LOGGER_NAME, VIS_ACK, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
 from ..proxy import Proxy
 from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass

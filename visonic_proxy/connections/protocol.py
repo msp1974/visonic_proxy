@@ -4,7 +4,9 @@ import asyncio
 from collections.abc import Callable
 import logging
 
-_LOGGER = logging.getLogger(__name__)
+from visonic_proxy.const import LOGGER_NAME
+
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class ConnectionProtocol(asyncio.Protocol):

@@ -6,11 +6,11 @@ import contextlib
 import datetime as dt
 import logging
 
-from ..const import ConnectionName, MsgLogLevel
+from ..const import LOGGER_NAME, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class Watchdog:
