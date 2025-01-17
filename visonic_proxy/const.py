@@ -21,12 +21,15 @@ class Config:
     PROXY_MODE = True
 
     WEBSOCKET_MODE = False  # Use websocket client instead of IP socket client
+    WEBSOCKET_SSL = True  # Enable SSL connection
+    WEBSOCKET_AUTH_KEY = ""  # Use to set Bearer token security on websocket connection
 
     VISONIC_HOST = "52.58.105.181"
     MESSAGE_PORT = 5001
     ALARM_MONITOR_PORT = 5002
     WEBSOCKET_PORT = 8082
     WEBSERVER_PORT = 8443
+    SSL_CERT_PATH = "certs"  # path based from dir of this file
 
     VISONIC_RECONNECT_INTERVAL = 10  # Freq CM will reconnect Visonic after disconnect
     KEEPALIVE_TIMER = 32  # Send Keepalive if no messages in 30 seconds

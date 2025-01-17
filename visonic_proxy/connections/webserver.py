@@ -162,7 +162,7 @@ class Webserver:
         """Init."""
         self.proxy = proxy
         self.port = self.proxy.config.WEBSERVER_PORT
-        self.http_server = HttpServer()
+        self.http_server = HttpServer(proxy)
         self.running: bool = True
         self.server_task: asyncio.Task
 
@@ -190,7 +190,7 @@ class Webserver:
             self._webserver(), name="WebServer"
         )
         self.running = True
-        _LOGGER.info("Started HTTP server on port %s", self.port)
+        _LOGGER.info("Started HTTP server on port %s (SSL enabled)", self.port)
 
     async def stop(self):
         """Stop webserver."""

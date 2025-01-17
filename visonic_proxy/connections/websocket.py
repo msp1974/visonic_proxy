@@ -4,12 +4,16 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 import datetime as dt
+import http
 import itertools
 import json
 import logging
+import os
+import ssl
 
-from websockets import ConnectionClosed, WebSocketServerProtocol
-from websockets.server import serve
+from websockets import ConnectionClosed
+from websockets.asyncio.server import ServerConnection, serve
+from websockets.http11 import Request
 
 from visonic_proxy import __VERSION__
 
@@ -104,7 +108,7 @@ class WebsocketServer:
         self.server_stop: asyncio.Future = None
         self.server_task: asyncio.Task = None
         self.send_processor_task: asyncio.Task | None = None
-        self.websockets: dict[str, WebSocketServerProtocol] = {}
+        self.websockets: dict[str, ServerConnection] = {}
 
         self.send_queue = asyncio.Queue()
 
@@ -130,7 +134,14 @@ class WebsocketServer:
 
             self.client_connected()
 
-            _LOGGER.info("Started Websocket server on port %s", self.port)
+            _LOGGER.info(
+                "Started Websocket server on port %s (%s, %s)",
+                self.port,
+                "SSL enabled" if self.proxy.config.WEBSOCKET_SSL else "SSL disabled",
+                "AUTH token required"
+                if self.proxy.config.WEBSOCKET_AUTH_KEY
+                else "AUTH token not required",
+            )
 
     async def run_server(self):
         """Run websocket server.
@@ -148,10 +159,44 @@ class WebsocketServer:
 
         self.server_stop = self.proxy.loop.create_future()
 
-        server = await serve(self.client_handler, self.host, self.port)
-        await self.server_stop
-        server.close()
-        await server.wait_closed()
+        if self.proxy.config.WEBSOCKET_SSL:
+            certs_path = f"{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/{self.proxy.config.SSL_CERT_PATH}"
+            # dir_path = os.path.dirname(os.path.realpath(__file__))
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.load_cert_chain(
+                certs_path + "/cert.pem",
+                certs_path + "/private.key",
+            )
+        else:
+            ssl_context = None
+
+        async with serve(
+            self.client_handler,
+            self.host,
+            self.port,
+            process_request=self.verify_authorisation,
+            ssl=ssl_context,
+        ):
+            await self.server_stop
+
+    def verify_authorisation(
+        self, websocket: ServerConnection, request: Request
+    ) -> bool:
+        """Verify auth token is set in config."""
+        if not self.proxy.config.WEBSOCKET_AUTH_KEY:
+            return None
+
+        if auth_header := request.headers.get("Authorization"):
+            if auth_header == f"Bearer {self.proxy.config.WEBSOCKET_AUTH_KEY}":
+                return None
+
+        _LOGGER.warning(
+            "Unauthorised websocket connection attempt from %s",
+            websocket.remote_address[0],
+        )
+        return websocket.respond(
+            http.HTTPStatus.UNAUTHORIZED, "Invalid or missing authorisation token\n"
+        )
 
     async def shutdown(self):
         """Stop websocket server."""
@@ -159,8 +204,6 @@ class WebsocketServer:
         for unsub in self._unsubscribe_listeners:
             unsub()
 
-        # for websocket in self.websockets.values():
-        #    await websocket.close_transport()
         if self.send_processor_task and not self.send_processor_task.done():
             self.send_processor_task.cancel()
 
@@ -193,11 +236,18 @@ class WebsocketServer:
     def disconnect_client(self, client_id: str):
         """Disconnect client."""
 
-    async def client_handler(self, websocket: WebSocketServerProtocol):
+    async def client_handler(self, websocket: ServerConnection):
         """Websocket handler."""
-        self.websockets[websocket.id] = websocket
 
-        await websocket.send(json.dumps({"connection": "success"}))
+        client_ip = websocket.remote_address[0]
+        _LOGGER.info(
+            "Websocket client connected from %s",
+            client_ip,
+        )
+        self.websockets[websocket.id] = websocket
+        websocket.respond(
+            http.HTTPStatus.ACCEPTED, json.dumps({"connection": "success"})
+        )
 
         while True:
             try:
@@ -224,6 +274,10 @@ class WebsocketServer:
                 continue
             except ConnectionClosed:
                 del self.websockets[websocket.id]
+                _LOGGER.info(
+                    "Websocket client disconnected from %s",
+                    client_ip,
+                )
                 break
 
     async def broadcast(self, message):

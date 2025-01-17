@@ -22,6 +22,7 @@ from visonic_proxy.const import (
     MsgLogLevel,
 )
 from visonic_proxy.helpers.env import get_env_var, is_running_as_addon, process_env_vars
+from visonic_proxy.helpers.ssl import validate_ssl_certificates
 from visonic_proxy.logger import VPLogger
 from visonic_proxy.managers.message_router import MessageCoordinatorStatus
 from visonic_proxy.proxy import Proxy
@@ -88,13 +89,15 @@ class VisonicProxy:
                 _LOGGER.debug("%s: %s", config[0], config[1])
             _LOGGER.debug("%s", "".rjust(60, "-"))
 
-        self.connection_manager = ConnectionManager(self.proxy)
+        # Validate/generate SSL certificates
+        certs_full_path = f"{os.path.dirname(os.path.realpath(__file__))}/{self.proxy.config.SSL_CERT_PATH}"
+        validate_ssl_certificates(certs_full_path)
 
+        # Start connection servers
+        self.connection_manager = ConnectionManager(self.proxy)
         self.status = ManagerStatus.STARTING
         _LOGGER.info("Proxy Server is starting")
-
         await self.connection_manager.start()
-
         if self.connection_manager.status == ManagerStatus.RUNNING:
             _LOGGER.info("Proxy Server is running")
 
