@@ -445,6 +445,7 @@ class SensorType(IntEnum):
     SOUND = 10
     KEYFOB = 50
     KEYPAD = 60
+    PANIC_BUTTON = 70
 
 
 ZoneSensorType = collections.namedtuple("ZoneSensorType", "name func")
@@ -479,6 +480,7 @@ SENSOR_TYPES = {
     "sirens": {0x01: ZoneSensorType("SR-740 PG2", SensorType.SOUND)},
     "keypads": {0x05: ZoneSensorType("KP-160 PG2", SensorType.KEYPAD)},
     "pgm": {0x05},
+    "panic_buttons": {0x01: ZoneSensorType("PB-101", SensorType.PANIC_BUTTON)},
 }
 
 SYSTEM_STATUS = [
