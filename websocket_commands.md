@@ -15,6 +15,19 @@ The status command will return a standard status output of the panel.  If the Vi
 {"request":"status"}
 ```
 
+## Subscribe & Unsubscribe
+
+Allows subscribing to specific command message responses which will be sent when they are received from the alarm panel.  You can pass an individual or a list of commands to subscribe or unsibscribe to.
+```
+{"request":"subscribe", "commands":"54"}
+
+{"request":"subscribe", "commands":["13","54"]}
+
+{"request":"unsubscribe", "commands":"54"}
+
+{"request":"unsubscribe", "commands":["13","54"]}
+
+
 ## Command
 
 You can issue any status command by id to the websocket client and it will request from the alarm panel and return a json decoded version of the response.  Command ids are as per the list of B0 status commands and must be a hex string ie "0a", "00" etc.
