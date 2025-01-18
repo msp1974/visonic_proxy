@@ -29,6 +29,7 @@ class EventType(StrEnum):
     SEND_KEEPALIVE = "keepalive"
     ACK_TIMEOUT = "ack_timeout"
     SET_MODE = "set_mode"
+    SUBSCRIBED_MESSAGE = "subscribed_message"
 
 
 @dataclass

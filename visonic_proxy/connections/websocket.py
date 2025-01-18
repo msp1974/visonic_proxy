@@ -17,7 +17,15 @@ from websockets.http11 import Request
 
 from visonic_proxy import __VERSION__
 
-from ..const import ACK, LOGGER_NAME, VIS_ACK, ConnectionName, MsgLogLevel
+from ..const import (
+    ACK,
+    LOGGER_NAME,
+    SETTINGS_DO_NOT_REQUEST,
+    STATUS_DO_NOT_REQUEST,
+    VIS_ACK,
+    ConnectionName,
+    MsgLogLevel,
+)
 from ..events import Event, EventType
 from ..managers.storage_manager import DataStore
 from ..message import QueuedMessage
@@ -154,6 +162,11 @@ class WebsocketServer:
                 ConnectionName.ALARM_MONITOR,
                 SEND_WEBSOCKET_STATUS_EVENT,
                 self.send_status,
+            ),
+            self.proxy.events.subscribe(
+                ConnectionName.ALARM_MONITOR,
+                EventType.SUBSCRIBED_MESSAGE,
+                self.send_subscribed_message,
             ),
         ]
 
@@ -319,6 +332,40 @@ class WebsocketServer:
                 result = await self.visonic_client.get_panel_status(
                     refresh_key_data=True
                 )
+            elif request == "subscribe":
+                if cmds := msg.get("commands"):
+                    if not isinstance(cmds, list):
+                        cmds = [cmds]
+                    subs = self.visonic_client.subscribed_messages
+                    subs.extend(cmds)
+                    subs = list(set(subs))
+                    if len(subs) > 10:
+                        subs = subs[:10]
+                        result = {
+                            "error": "too many subscriptions",
+                            "message": "You have exceeded the maximum 10 subscriptions",
+                            "subscriptions": subs,
+                        }
+                    else:
+                        result = {
+                            "result": "success",
+                            "subscriptions": subs,
+                        }
+                        self.visonic_client.subscribed_messages = subs
+            elif request == "unsubscribe":
+                if cmds := msg.get("commands"):
+                    if not isinstance(cmds, list):
+                        cmds = [cmds]
+
+                for cmd in cmds:
+                    if cmd in self.visonic_client.subscribed_messages:
+                        self.visonic_client.subscribed_messages.remove(cmd)
+
+                result = {
+                    "result": "success",
+                    "subscriptions": self.visonic_client.subscribed_messages,
+                }
+
             elif self.visonic_client.is_init:
                 if request in ["turn_on", "turn_off"]:
                     dev_item = msg.get("type")
@@ -468,6 +515,24 @@ class WebsocketServer:
             else MsgLogLevel.L2,
         )
 
+    async def send_subscribed_message(self, event: Event):
+        """Send subscribed message to websocket connections."""
+
+        if event.event_data:
+            if cmd := event.event_data.get("command"):
+                _LOGGER.info(
+                    "Sending subscribed message - %s", cmd, extra=MsgLogLevel.L1
+                )
+                msg = {
+                    "subscribed_message": {
+                        "command": cmd,
+                        "datetime": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "message": event.event_data.get("message"),
+                        "data": event.event_data.get("data"),
+                    }
+                }
+                await self.broadcast(json.dumps(msg))
+
     async def _send_queue_processor(self):
         """Process send queue."""
         while True:
@@ -549,6 +614,8 @@ class VisonicClient:
         self.init_task = self.proxy.loop.create_task(
             self.initialise_data(), name="Init Waiter"
         )
+
+        self.subscribed_messages = []
 
     def stop(self):
         """Stop queue."""
@@ -749,6 +816,24 @@ class VisonicClient:
                         self.datastore.get_status(f"{dec.cmd}_{command_name}"),
                         extra=MsgLogLevel.L4,
                     )
+                    # Send subscribed message
+                    if dec.cmd in self.subscribed_messages:
+                        _LOGGER.info(
+                            "Subscribed message received - firing event",
+                            extra=MsgLogLevel.L1,
+                        )
+                        self.proxy.events.fire_event(
+                            Event(
+                                name=ConnectionName.ALARM_MONITOR,
+                                event_type=EventType.SUBSCRIBED_MESSAGE,
+                                client_id=0,
+                                event_data={
+                                    "command": dec.cmd,
+                                    "message": dec.data,
+                                    "data": dec.raw_data,
+                                },
+                            )
+                        )
 
             # Response to a 51 message
             if dec.cmd in [B0CommandName.ASK_ME, B0CommandName.ASK_ME2] and dec.data:
@@ -1061,9 +1146,10 @@ class VisonicClient:
 
     async def download_all_statuses(self, known_only: bool = True):
         """Request all known statuses."""
-        ignore_list = ["06", "0f", "17", "35", "39", "42", "51", "6a"]
         statuses = [
-            status.value for status in B0CommandName if status.value not in ignore_list
+            status.value
+            for status in B0CommandName
+            if status.value not in STATUS_DO_NOT_REQUEST
         ]
         await self.download_statuses(statuses, set_stealth=True)
 
@@ -1071,16 +1157,18 @@ class VisonicClient:
 
     async def download_all_settings(self, known_only: bool = True):
         """Count to 441 and request all settings."""
-        ignore_list = [83, 413]
-
-        if known_only:  # noqa: SIM108
+        if known_only:
             settings = [
                 setting.value
                 for setting in Command35Settings
-                if setting.value not in ignore_list
+                if setting.value not in SETTINGS_DO_NOT_REQUEST
             ]
         else:
-            settings = [setting for setting in range(441) if setting not in ignore_list]
+            settings = [
+                setting
+                for setting in range(441)
+                if setting not in SETTINGS_DO_NOT_REQUEST
+            ]
 
         await self.download_settings(settings, set_stealth=True)
 
