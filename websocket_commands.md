@@ -17,7 +17,7 @@ The status command will return a standard status output of the panel.  If the Vi
 
 ## Subscribe & Unsubscribe
 
-Allows subscribing to specific command message responses which will be sent when they are received from the alarm panel.  You can pass an individual or a list of commands to subscribe or unsibscribe to.
+Allows subscribing to specific command message responses which will be sent when they are received from the alarm panel.  You can pass an individual or a list of commands to subscribe or unsubscribe to.  For unsubscribe, you can also send a command of all to unsubscribe to all messages.
 ```
 {"request":"subscribe", "commands":"54"}
 
@@ -26,6 +26,8 @@ Allows subscribing to specific command message responses which will be sent when
 {"request":"unsubscribe", "commands":"54"}
 
 {"request":"unsubscribe", "commands":["13","54"]}
+
+{"request":"unsubscribe", "commands":"all"}
 
 
 ## Command

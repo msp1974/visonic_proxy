@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import ssl
+from typing import Any
 
 from websockets import ConnectionClosed
 from websockets.asyncio.server import ServerConnection, serve
@@ -269,7 +270,9 @@ class WebsocketServer:
                 _LOGGER.info(
                     "Received websocket message: %s", msg, extra=MsgLogLevel.L5
                 )
-                response, send_status = await self.websocket_receive_message(msg)
+                response, send_status = await self.websocket_receive_message(
+                    websocket.id, msg
+                )
                 if response:
                     if isinstance(response, dict):
                         await websocket.send(json.dumps(response))
@@ -292,6 +295,39 @@ class WebsocketServer:
                     client_ip,
                 )
                 break
+
+    async def send_subscribed_message(self, event: Event):
+        """Send subscribed message to websocket connections."""
+
+        if event.event_data:
+            if clients := event.event_data.get("client_ids"):
+                if cmd := event.event_data.get("command"):
+                    _LOGGER.info(
+                        "Sending subscribed message - %s", cmd, extra=MsgLogLevel.L5
+                    )
+                    msg = {
+                        "subscribed_message": {
+                            "command": cmd,
+                            "datetime": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "message": event.event_data.get("message"),
+                            "data": event.event_data.get("data"),
+                        }
+                    }
+                    await self.send_ws_message(clients, json.dumps(msg))
+
+    async def send_ws_message(
+        self, clients: str | list[str], message: str | dict[str, Any]
+    ):
+        """Send message over websocket(s)."""
+        if isinstance(clients, str):
+            clients = [clients]
+
+        if isinstance(message, dict):
+            message = json.dumps(message)
+
+        for client in clients:
+            if websocket := self.websockets.get(client):
+                await websocket.send(message)
 
     async def broadcast(self, message):
         """Send message to all websocket clients."""
@@ -323,7 +359,43 @@ class WebsocketServer:
             return False
         return True
 
-    async def websocket_receive_message(self, msg: dict | str):
+    def add_subscription(self, client_id: str, commands: str | list[str]) -> list[str]:
+        """Add to subscribed messages for websocket client."""
+        if not isinstance(commands, list):
+            commands = [commands]
+
+        if subs := self.visonic_client.subscribed_messages.get(client_id) or []:
+            subs.extend(commands)
+
+            # Remove duplicates
+            subs = list(set(subs))
+
+            self.visonic_client.subscribed_messages[client_id] = subs
+            return subs
+
+        self.visonic_client.subscribed_messages[client_id] = commands
+        return commands
+
+    def remove_subscription(
+        self, client_id: str, commands: str | list[str]
+    ) -> list[str]:
+        """Remove a subscription for a message for a websocket client."""
+        if not isinstance(commands, list):
+            commands = [commands]
+
+        if subs := self.visonic_client.subscribed_messages.get(client_id) or []:
+            for cmd in commands:
+                if cmd == "all":
+                    del self.visonic_client.subscribed_messages[client_id]
+                    return []
+                if cmd in subs:
+                    subs.remove(cmd)
+
+            self.visonic_client.subscribed_messages[client_id] = subs
+            return subs
+        return []
+
+    async def websocket_receive_message(self, client_id: str, msg: dict | str):  # noqa: C901
         """Receive message from websocket."""
         result = None
         send_status = False
@@ -334,37 +406,18 @@ class WebsocketServer:
                 )
             elif request == "subscribe":
                 if cmds := msg.get("commands"):
-                    if not isinstance(cmds, list):
-                        cmds = [cmds]
-                    subs = self.visonic_client.subscribed_messages
-                    subs.extend(cmds)
-                    subs = list(set(subs))
-                    if len(subs) > 10:
-                        subs = subs[:10]
-                        result = {
-                            "error": "too many subscriptions",
-                            "message": "You have exceeded the maximum 10 subscriptions",
-                            "subscriptions": subs,
-                        }
-                    else:
-                        result = {
-                            "result": "success",
-                            "subscriptions": subs,
-                        }
-                        self.visonic_client.subscribed_messages = subs
+                    subs = self.add_subscription(client_id, cmds)
+                    result = {
+                        "result": "success",
+                        "subscriptions": subs,
+                    }
             elif request == "unsubscribe":
                 if cmds := msg.get("commands"):
-                    if not isinstance(cmds, list):
-                        cmds = [cmds]
-
-                for cmd in cmds:
-                    if cmd in self.visonic_client.subscribed_messages:
-                        self.visonic_client.subscribed_messages.remove(cmd)
-
-                result = {
-                    "result": "success",
-                    "subscriptions": self.visonic_client.subscribed_messages,
-                }
+                    subs = self.remove_subscription(client_id, cmds)
+                    result = {
+                        "result": "success",
+                        "subscriptions": subs,
+                    }
 
             elif self.visonic_client.is_init:
                 if request in ["turn_on", "turn_off"]:
@@ -515,24 +568,6 @@ class WebsocketServer:
             else MsgLogLevel.L2,
         )
 
-    async def send_subscribed_message(self, event: Event):
-        """Send subscribed message to websocket connections."""
-
-        if event.event_data:
-            if cmd := event.event_data.get("command"):
-                _LOGGER.info(
-                    "Sending subscribed message - %s", cmd, extra=MsgLogLevel.L1
-                )
-                msg = {
-                    "subscribed_message": {
-                        "command": cmd,
-                        "datetime": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "message": event.event_data.get("message"),
-                        "data": event.event_data.get("data"),
-                    }
-                }
-                await self.broadcast(json.dumps(msg))
-
     async def _send_queue_processor(self):
         """Process send queue."""
         while True:
@@ -615,7 +650,7 @@ class VisonicClient:
             self.initialise_data(), name="Init Waiter"
         )
 
-        self.subscribed_messages = []
+        self.subscribed_messages = {}
 
     def stop(self):
         """Stop queue."""
@@ -762,6 +797,14 @@ class VisonicClient:
                 return True
         return False
 
+    def message_subscriptions(self, command: str) -> list[str]:
+        """Get subscription client ids for command message."""
+        return [
+            client
+            for client, subs in self.subscribed_messages.items()
+            if command in subs
+        ]
+
     async def process_message(
         self, message_class: str, dec: B0Message | STDMessage | CMStatus
     ):
@@ -817,10 +860,10 @@ class VisonicClient:
                         extra=MsgLogLevel.L4,
                     )
                     # Send subscribed message
-                    if dec.cmd in self.subscribed_messages:
+                    if clients := self.message_subscriptions(dec.cmd):
                         _LOGGER.info(
                             "Subscribed message received - firing event",
-                            extra=MsgLogLevel.L1,
+                            extra=MsgLogLevel.L5,
                         )
                         self.proxy.events.fire_event(
                             Event(
@@ -829,6 +872,7 @@ class VisonicClient:
                                 client_id=0,
                                 event_data={
                                     "command": dec.cmd,
+                                    "client_ids": clients,
                                     "message": dec.data,
                                     "data": dec.raw_data,
                                 },
