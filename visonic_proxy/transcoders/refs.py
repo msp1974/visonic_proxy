@@ -521,7 +521,7 @@ SYSTEM_STATUS = [
 TROUBLES = [
     "Unknown",
     # 1
-    "Unknown",
+    "Preenroll No Code",
     "Unknown",
     "Unknown",
     "Unknown",
