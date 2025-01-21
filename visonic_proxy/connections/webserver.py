@@ -5,10 +5,15 @@ Responds to POST reqest with simple response.
 
 import asyncio
 import contextlib
+import datetime as dt
+import io
 import json
 import logging
+import os
+import re
 import time
 
+from PIL import Image
 import requests
 import urllib3
 
@@ -35,6 +40,7 @@ class MyHandler:
     def __init__(self, proxy: Proxy, request_connect: bool):
         """Initialise."""
         self.proxy = proxy
+        self.request_connect = request_connect
 
     async def forward_request(self, request: HttpRequest) -> requests.Response:
         """Forward request and return response."""
@@ -97,13 +103,13 @@ class MyHandler:
                     _LOGGER.info(
                         "\x1b[1;36mVisonic HTTPS ->\x1b[0m %s",
                         resp.decode().replace("\n", ""),
-                        extra=MsgLogLevel.L5,
+                        extra=MsgLogLevel.L3,
                     )
 
                     headers = HttpHeaders()
                     for k, v in res.headers.items():
                         if k == "Content-Length":
-                            # Ajust content length if we have added connect command
+                            # Adjust content length if we have added connect command
                             headers.add(k, len(resp))
                         else:
                             headers.add(k, v)
@@ -112,6 +118,74 @@ class MyHandler:
 
             else:
                 await self.send_man_response()
+        elif self.proxy.config.PROXY_MODE:
+            if res := await self.forward_request(request):
+                response = res.content
+                _LOGGER.info("RESPONSE: %s", response, extra=MsgLogLevel.L5)
+
+                if request.path == "/scripts/pir_film.php":
+                    await self.decode_image(request.body)
+
+                headers = HttpHeaders()
+                for k, v in res.headers.items():
+                    headers.add(k, v)
+                return HttpResponse(res.status_code, headers, res.content)
+
+    async def decode_image(self, data: bytes):
+        """Decode image."""
+        image_json = {}
+        keys = [
+            "version",
+            "serial",
+            "camera",
+            "cameraTrigger",
+            "film",
+            "file",
+            "index",
+            "frameNum",
+            "frameRate",
+            "fileType",
+            "filmType",
+            "filesCount",
+        ]
+        for key in keys:
+            keystr = f"{key}: (.*?)\r\n"
+            match = re.search(bytes(keystr, "ascii"), data)
+            if match:
+                image_json[key] = match.group(1).decode("utf-8")
+        _LOGGER.info("IMAGE DATA: %s", image_json, extra=MsgLogLevel.L3)
+        _LOGGER.info(
+            "RECEIVED CAMERA IMAGE %s of %s",
+            int(image_json["frameNum"]) + 1,
+            image_json["filesCount"],
+            extra=MsgLogLevel.L3,
+        )
+        data = data.split(b"\r\ndata: ")[1]
+        data = data.split(b"\r\n")[1]
+
+        im = Image.open(io.BytesIO(data))
+
+        dt_now = dt.datetime.now().strftime("%Y%m%d%H%M%S")
+        filename = f"{image_json['serial']}_zone{image_json['camera']}_{image_json['frameNum']}_{dt_now}.jpg"
+        path = "./images"
+
+        # Verify cert directory exists and create if not
+        if not os.path.isdir(path):
+            os.mkdir(path)
+
+        im.save(f"{path}/{filename}")
+
+        self.proxy.events.fire_event(
+            Event(
+                name=ConnectionName.ALARM_MONITOR,
+                event_type=EventType.NEW_CAMERA_IMAGE,
+                client_id=0,
+                event_data={
+                    "image_info": image_json,
+                    "data": data,
+                },
+            )
+        )
 
     async def send_man_response(self):
         """Send constgructed response."""

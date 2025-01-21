@@ -28,7 +28,7 @@ Allows subscribing to specific command message responses which will be sent when
 {"request":"unsubscribe", "commands":["13","54"]}
 
 {"request":"unsubscribe", "commands":"all"}
-
+```
 
 ## Command
 
@@ -82,6 +82,14 @@ State Id relates to the state id of the arming type as per the list below.  Part
     Arm Away = 5
     Arm Instant Home = 14
     Arm Instant Away = 15
+
+## Request Image
+
+You can request images from your camera PIR sensors and they will be sent as a binary websocket message when the panel receives it.  It can take some time for this to happen.  The command requires you to provide the zone id of the camera zone you wish to receive and image for.  ****Are there any panel config items needed for this to work??  Upload film needs to be enabled.  Need to capture error response if it is not and provide fail message.****
+
+```
+{"request":"image", "zone": 2}
+```
 
 ## Send Raw Message
 

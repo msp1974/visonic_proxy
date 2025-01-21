@@ -30,6 +30,7 @@ class EventType(StrEnum):
     ACK_TIMEOUT = "ack_timeout"
     SET_MODE = "set_mode"
     SUBSCRIBED_MESSAGE = "subscribed_message"
+    NEW_CAMERA_IMAGE = "camera_image"
 
 
 @dataclass

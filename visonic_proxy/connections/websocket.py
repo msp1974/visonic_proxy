@@ -37,6 +37,7 @@ from ..transcoders.helpers import (
     VPCommand,
     b2i,
     bits_to_le_bytes,
+    calculate_message_checksum,
     chunk_bytearray,
     get_lookup_value,
     ibit,
@@ -169,6 +170,11 @@ class WebsocketServer:
                 EventType.SUBSCRIBED_MESSAGE,
                 self.send_subscribed_message,
             ),
+            self.proxy.events.subscribe(
+                ConnectionName.ALARM_MONITOR,
+                EventType.NEW_CAMERA_IMAGE,
+                self.send_image_message,
+            ),
         ]
 
         self.server_stop = self.proxy.loop.create_future()
@@ -295,6 +301,15 @@ class WebsocketServer:
                     client_ip,
                 )
                 break
+
+    async def send_image_message(self, event: Event):
+        """Send broadcast message with image info and raw image data."""
+        if event.event_data:
+            image_info = event.event_data.get("image_info")
+            image_data: bytes = event.event_data.get("data")
+
+            msg = {"new_image": {"image_info": image_info, "image": image_data.hex()}}
+            await self.broadcast(json.dumps(msg))
 
     async def send_subscribed_message(self, event: Event):
         """Send subscribed message to websocket connections."""
@@ -442,6 +457,14 @@ class WebsocketServer:
                                 result = msg
                                 send_status = False
 
+                elif request == "image":
+                    if zone := msg.get("zone"):
+                        await self.visonic_client.request_image(int(zone))
+                        result = {
+                            "request": "image",
+                            "result": "success",
+                        }
+
                 elif request == "command":
                     cmd = str(msg.get("id"))
                     if (
@@ -450,7 +473,6 @@ class WebsocketServer:
                         and cmd
                         not in [
                             "06",
-                            "0f",
                             "17",
                             "35",
                             "42",
@@ -1644,3 +1666,15 @@ class VisonicClient:
         if message:
             await self.send_message_and_wait(message.data, [ACK])
             return True
+
+    async def request_image(self, zone: int, images: int = 1):
+        """Send a standard message to panel requesting an image from zone camera."""
+
+        message = f"ad 0b {zone:02x} {images:02x} ff ff 00 00 00 00 00 43"
+        crc = calculate_message_checksum(bytes.fromhex(message)).hex()
+        message = f"0d {message} {crc} 0a"
+
+        await self.send_message_and_wait(bytes.fromhex(message), [ACK])
+        # TODO: Panel sends a response to this message which will show if image will be sent.  Need to get that
+        # and use to determine response.
+        return True
