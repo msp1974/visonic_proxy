@@ -103,7 +103,7 @@ class MyHandler:
                     _LOGGER.info(
                         "\x1b[1;36mVisonic HTTPS ->\x1b[0m %s",
                         resp.decode().replace("\n", ""),
-                        extra=MsgLogLevel.L3,
+                        extra=MsgLogLevel.L5,
                     )
 
                     headers = HttpHeaders()
