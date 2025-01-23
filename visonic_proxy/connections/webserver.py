@@ -153,13 +153,18 @@ class MyHandler:
             match = re.search(bytes(keystr, "ascii"), data)
             if match:
                 image_json[key] = match.group(1).decode("utf-8")
-        _LOGGER.info("IMAGE DATA: %s", image_json, extra=MsgLogLevel.L3)
+            else:
+                image_json[key] = None
+
         _LOGGER.info(
             "RECEIVED CAMERA IMAGE %s of %s",
             int(image_json["frameNum"]) + 1,
             image_json["filesCount"],
             extra=MsgLogLevel.L3,
         )
+        _LOGGER.info("IMAGE INFO: %s", image_json, extra=MsgLogLevel.L5)
+
+        # Remove image bytes size at start of image data
         data = data.split(b"\r\ndata: ")[1]
         data = data.split(b"\r\n")[1]
 
@@ -173,19 +178,22 @@ class MyHandler:
         if not os.path.isdir(path):
             os.mkdir(path)
 
-        im.save(f"{path}/{filename}")
+        try:
+            im.save(f"{path}/{filename}")
 
-        self.proxy.events.fire_event(
-            Event(
-                name=ConnectionName.ALARM_MONITOR,
-                event_type=EventType.NEW_CAMERA_IMAGE,
-                client_id=0,
-                event_data={
-                    "image_info": image_json,
-                    "data": data,
-                },
+            self.proxy.events.fire_event(
+                Event(
+                    name=ConnectionName.ALARM_MONITOR,
+                    event_type=EventType.NEW_CAMERA_IMAGE,
+                    client_id=0,
+                    event_data={
+                        "image_info": image_json,
+                        "data": data,
+                    },
+                )
             )
-        )
+        except Exception as ex:  # noqa: BLE001
+            _LOGGER.error("Error saving image.  Error is %s", ex)
 
     async def send_man_response(self):
         """Send constgructed response."""
