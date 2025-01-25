@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import ssl
+import traceback
 from typing import Any
 
 from websockets import ConnectionClosed
@@ -496,10 +497,11 @@ class WebsocketServer:
                         }
                 elif request == "setting":
                     setting = int(msg.get("id"))
+                    use_42 = msg.get("use_42", False)
                     if setting is not None and setting not in [83, 413]:
                         setting_name = get_lookup_value(Command35Settings, setting)
                         response = await self.visonic_client.get_setting(
-                            setting, refresh=True
+                            setting, refresh=True, use_42=use_42
                         )
                         result = {
                             "setting": setting,
@@ -520,8 +522,9 @@ class WebsocketServer:
 
                 elif request == "all_settings":
                     known_only = msg.get("known_only", True)
+                    use_42 = msg.get("use_42", False)
                     result = await self.visonic_client.download_all_settings(
-                        known_only=known_only
+                        known_only=known_only, use_42=use_42
                     )
 
                 elif request == "send_raw_command":
@@ -767,7 +770,11 @@ class VisonicClient:
                             self.process_message(message_class, dec)
                         )
                 except Exception as ex:  # noqa: BLE001
-                    _LOGGER.error(ex)
+                    _LOGGER.error(
+                        "Unknown websocket error.  Error is: %s\n%s",
+                        ex,
+                        traceback.format_exc(),
+                    )
 
             elif message_class == MessageClass.E0:
                 # Process E0 message from CM.
@@ -1094,18 +1101,21 @@ class VisonicClient:
         return self.datastore.get_status(status_name)
 
     async def get_setting(
-        self, setting: int, refresh: bool = False
+        self, setting: int, refresh: bool = False, use_42: bool = False
     ) -> dict | list | str:
         """Get settings value from datastore.  Refresh if requested or does not exist in store."""
         setting_name = f"{setting}_{get_lookup_value(Command35Settings, setting)}"
-        if refresh or self.datastore.get_setting(setting_name) is None:
+        if refresh or self.datastore.get_setting(setting_name, s42=use_42) is None:
             setting_id = setting.to_bytes(2, byteorder="little")
+            setting_cmd = "42" if use_42 else "35"
             msg = self.message_builder.message_preprocessor(
-                bytes.fromhex(f"b0 35 {setting_id.hex(' ')}")
+                bytes.fromhex(f"b0 {setting_cmd} {setting_id.hex(' ')}")
             )
-            await self.send_message_and_wait(msg.data, [ACK, f"35_{setting!s}"])
+            await self.send_message_and_wait(
+                msg.data, [ACK, f"{setting_cmd}_{setting!s}"]
+            )
 
-        return self.datastore.get_setting(setting_name)
+        return self.datastore.get_setting(setting_name, s42=use_42)
 
     async def get_eprom_setting(
         self, setting: EPROMSetting, refresh: bool = False
@@ -1153,7 +1163,7 @@ class VisonicClient:
             await self.send_message_and_wait(VPCommand("stealth", False))
 
     async def download_settings(
-        self, settings: int | list[int], set_stealth: bool = False
+        self, settings: int | list[int], set_stealth: bool = False, use_42: bool = False
     ):
         """Iterate settings and store in alarm data."""
 
@@ -1164,15 +1174,17 @@ class VisonicClient:
             await self.send_message_and_wait(VPCommand("stealth", True))
 
         settings_per_request = 6
+        setting_cmd = "42" if use_42 else "35"
         for i in range(0, len(settings), settings_per_request):
             wait_for = [
-                f"35_{setting}" for setting in settings[i : i + settings_per_request]
+                f"{setting_cmd}_{setting}"
+                for setting in settings[i : i + settings_per_request]
             ]
             request_list = [
                 i.to_bytes(2, byteorder="little").hex(" ")
                 for i in settings[i : i + settings_per_request]
             ]
-            request = f"b0 35 {' '.join(request_list)}"
+            request = f"b0 {setting_cmd} {' '.join(request_list)}"
             msg = self.message_builder.message_preprocessor(bytes.fromhex(request))
             wait_for.append(ACK)
             await self.send_message_and_wait(msg.data, wait_for)
@@ -1221,7 +1233,9 @@ class VisonicClient:
 
         return self.datastore.get_all_statuses()
 
-    async def download_all_settings(self, known_only: bool = True):
+    async def download_all_settings(
+        self, known_only: bool = True, use_42: bool = False
+    ):
         """Count to 441 and request all settings."""
         if known_only:
             settings = [
@@ -1236,9 +1250,9 @@ class VisonicClient:
                 if setting not in SETTINGS_DO_NOT_REQUEST
             ]
 
-        await self.download_settings(settings, set_stealth=True)
+        await self.download_settings(settings, set_stealth=True, use_42=use_42)
 
-        return self.datastore.get_all_settings()
+        return self.datastore.get_all_settings(s42=use_42)
 
     async def download_all_eprom_settings(self):
         """Download all known eprom settings."""

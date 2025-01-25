@@ -587,15 +587,23 @@ class B0Formatters:
 
         return result
 
-    def format_42_36(self, data: list[int]) -> int:
+    def format_42_36(self, data: int) -> int:
         """EPROM version to major.minor format."""
-        byte_int = int.to_bytes(data[0], 2)
+        byte_int = int.to_bytes(data[0] if isinstance(data, list) else data, 2)
         return byte_int[0] + byte_int[1] / 1000
 
-    def format_42_71(self, data: list[int]) -> bool:
+    def format_42_71(self, data: int) -> bool:
         """Format h24 time setting.  Bit 0 is status."""
-        return (data[0] >> 0) & 1 == 1
+        return (data >> 0) & 1 == 1
 
-    def format_42_72(self, data: list[int]) -> bool:
+    def format_42_72(self, data: int) -> bool:
         """US date format setting.  Bit 0 is status."""
-        return (data[0] >> 0) & 1 == 0
+        return (data >> 0) & 1 == 0
+
+    def format_42_229(self, data: list[int]) -> list[str]:
+        """Format 229 - list of ints."""
+        return data
+
+    def format_42_340(self, data: list[str]) -> list[str]:
+        """Format ip addresses from text."""
+        return [".".join(wrap(ip, 3)) for ip in data]
