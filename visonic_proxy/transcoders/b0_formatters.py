@@ -291,6 +291,15 @@ class B0Formatters:
         """Format panel SW version."""
         return bytearray.fromhex(data).decode("ascii", errors="ignore")
 
+    def format_66(self, data: list[int]) -> str:
+        """Format siren status."""
+        reasons = ["none", "manual", "alarm", "unknown"]
+        return {
+            "sounding": bool(data[1]),
+            "reason": reasons[min(data[1], 3)],
+            "data": data,
+        }
+
     def format_75(self, data: str) -> str:
         """Format event log.
 
