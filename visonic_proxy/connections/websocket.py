@@ -457,6 +457,16 @@ class WebsocketServer:
                                 msg["result"] = "success"
                                 result = msg
                                 send_status = False
+                elif request == "siren":
+                    if action := msg.get("action"):
+                        if (
+                            user_code
+                            := await self.visonic_client.get_master_user_code()
+                        ):
+                            if action == "sound":
+                                await self.visonic_client.sound_siren(user_code)
+                            elif action == "mute":
+                                await self.visonic_client.mute_siren(user_code)
 
                 elif request == "image":
                     if zone := msg.get("zone"):
@@ -1285,6 +1295,11 @@ class VisonicClient:
             ),
         )
 
+    async def get_master_user_code(self) -> str | None:
+        """Get master user code."""
+        if user_codes := await self.get_setting(Command35Settings.USER_CODES):
+            return user_codes[0]
+
     async def get_panel_status(self, refresh_key_data: bool = False):
         """Get current panel status."""
         start = dt.datetime.now()
@@ -1680,6 +1695,22 @@ class VisonicClient:
         if message:
             await self.send_message_and_wait(message.data, [ACK])
             return True
+
+    async def sound_siren(self, user_code: str):
+        """Make siren sound."""
+        data = bytes.fromhex("05 ff 08 02 03 00 00 01")
+        message = self.message_builder.build_b0_add_remove_message(
+            MessageType.ADD, B0CommandName.SIREN_CONTROL, user_code, data
+        )
+        await self.send_message_and_wait(message.data, [ACK])
+
+    async def mute_siren(self, user_code: str):
+        """Stop siren sounding."""
+        message = f"a1 00 00 0b {user_code[:2]} {user_code[2:4]} 00 00 00 00 00 43"
+        crc = calculate_message_checksum(bytes.fromhex(message)).hex()
+        message = f"0d {message} {crc} 0a"
+
+        await self.send_message_and_wait(bytes.fromhex(message), [ACK])
 
     async def request_image(self, zone: int, images: int = 1):
         """Send a standard message to panel requesting an image from zone camera."""

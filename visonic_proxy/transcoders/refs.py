@@ -120,7 +120,8 @@ class B0CommandName(StrEnum):
     ZONES_3A = "3a"  # Some zone info in bits
     # 3b, 3c are invalid
     ZONE_TEMPS = "3d"
-    # 3e, 3f - invalid
+    SIREN_CONTROL = "3e"  # Only seems to be a 00 type message ie 0d b0 00 3e 0a 31 80 05 ff 08 02 03 00 00 01 43 fe 0a sounds siren 0
+    # 3f - invalid
     WIRELESS_DEVICES_40 = "40"  # Some zone info - has data for each zone in use 04 (04 06 for 1&2 on PM10)
     # 41 gets no response
     SETTINGS_42 = "42"  # Need a parameter for the setting - see b0_42_command.py
@@ -478,6 +479,7 @@ SENSOR_TYPES = {
     "keypads": {0x05: ZoneSensorType("KP-160 PG2", SensorType.KEYPAD)},
     "pgm": {0x05},
     "panic_buttons": {0x01: ZoneSensorType("PB-101", SensorType.PANIC_BUTTON)},
+    "panel": {0x00: ZoneSensorType("Powermaster", "Panel")},
 }
 
 SYSTEM_STATUS = [
