@@ -65,7 +65,6 @@ class Events:
             self.listeners[event_id].append(callback)
         else:
             self.listeners[event_id] = [callback]
-        # log_message("LISTENERS: %s", self.listeners, level=2)
         return partial(self._unsubscribe, event_id, callback)
 
     def _unsubscribe(self, event_id: str, callback: Callable):
@@ -90,14 +89,17 @@ class Events:
         for event_id in event_ids:
             if event_id in self.listeners:
                 try:
+                    tasks: list[asyncio.Task] = []
                     for callback in self.listeners[event_id]:
                         _LOGGER.debug("Firing Event: %s - %s", event_id, callback)
                         _LOGGER.debug("Event: %s", event)
                         if inspect.iscoroutinefunction(callback):
-                            await callback(event)
-                            await asyncio.gather()
+                            tasks.append(callback(event))
                         else:
                             callback(event)
+
+                        if tasks:
+                            asyncio.gather(*tasks)
                 except Exception as ex:  # noqa: BLE001
                     _LOGGER.error("Error dispatching event.  Error is %s", ex)
                     _LOGGER.error(traceback.format_exc())
@@ -110,3 +112,7 @@ class Events:
             self._async_fire_event(event), name=f"Fire Event - {event.event_type}"
         )
         return True
+
+    async def async_fire_event(self, event: Event):
+        """Notify event to all listeners."""
+        await self._async_fire_event(event)
