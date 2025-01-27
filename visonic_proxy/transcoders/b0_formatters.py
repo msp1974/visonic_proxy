@@ -284,6 +284,12 @@ class B0Formatters:
                 "sub_type": sub_type,
                 "assigned_name_id": name,
                 "partitions": partition_int_to_list_ids(partitions),
+                "other data": {
+                    "bit3": device[3],
+                    "bit5": device[5],
+                    "bit7": device[7],
+                    "bit12": device[12],
+                },
             }
         return result
 
