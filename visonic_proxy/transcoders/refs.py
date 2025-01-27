@@ -56,7 +56,7 @@ class ArmModes(IntEnum):
 class B0CommandName(StrEnum):
     """B0 Message command."""
 
-    WIRELESS_DEVICES_00 = "00"
+    WIRELESS_DEVICES_00 = "00"  # bits relate to bit 7 of devices (58)
     WIRELESS_DEVICES_01 = "01"  # Investigate more
     WIRELESS_DEVICE_UPDATING = "02"  # Investigate more
     PANEL_TYPE = "03"  # Returns [25,7] on PM10, [25,8] on PM30
@@ -120,7 +120,7 @@ class B0CommandName(StrEnum):
     ZONES_3A = "3a"  # Some zone info in bits
     # 3b, 3c are invalid
     ZONE_TEMPS = "3d"
-    SIREN_CONTROL = "3e"  # Only seems to be a 00 type message ie 0d b0 00 3e 0a 31 80 05 ff 08 02 03 00 00 01 43 fe 0a sounds siren 0
+    SIREN_CONTROL = "3e"  # Only seems to be a 00 type message ie 0d b0 00 3e 0a 31 80 05 ff 08 02 03 00 00 01 43 fe 0a sounds siren 0.  Could also control other things as 02 is siren index
     # 3f - invalid
     WIRELESS_DEVICES_40 = "40"  # Some zone info - has data for each zone in use 04 (04 06 for 1&2 on PM10)
     # 41 gets no response
