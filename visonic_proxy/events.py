@@ -89,17 +89,13 @@ class Events:
         for event_id in event_ids:
             if event_id in self.listeners:
                 try:
-                    tasks: list[asyncio.Task] = []
                     for callback in self.listeners[event_id]:
                         _LOGGER.debug("Firing Event: %s - %s", event_id, callback)
                         _LOGGER.debug("Event: %s", event)
                         if inspect.iscoroutinefunction(callback):
-                            tasks.append(callback(event))
+                            await callback(event)
                         else:
                             callback(event)
-
-                        if tasks:
-                            asyncio.gather(*tasks)
                 except Exception as ex:  # noqa: BLE001
                     _LOGGER.error("Error dispatching event.  Error is %s", ex)
                     _LOGGER.error(traceback.format_exc())
