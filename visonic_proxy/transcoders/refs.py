@@ -379,7 +379,7 @@ class IndexName(IntEnum):
     PARTITIONS = 15
     UNK16 = 16
     EXPANDER_33 = 17
-    IOV = 18
+    IOV = 18  # IOV is the IO expansion module
     UNK19 = 19
     UNK20 = 20
     NA = 255
