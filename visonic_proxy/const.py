@@ -80,7 +80,7 @@ ACK = "ACK"
 DUH = "DUH"
 NAK = "NAK"
 
-STATUS_DO_NOT_REQUEST = ["06", "0f", "17", "35", "39", "42", "51", "6a"]
+STATUS_DO_NOT_REQUEST = ["06", "0f", "17", "35", "39", "3e", "42", "51", "6a"]
 SETTINGS_DO_NOT_REQUEST = [83, 413]
 
 
