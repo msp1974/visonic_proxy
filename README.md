@@ -1,5 +1,7 @@
 # Visonic Proxy
 
+# DO NOT INSTALL THIS v1.1.0 YET - BROKEN!
+
 A proxy for Visonic Alarms to allow panels with Powerlink 3.1 modules to be able to work with HomeAssistant and the Visonic apps at the same time.
 
 It is supported by the following HA integrations.
