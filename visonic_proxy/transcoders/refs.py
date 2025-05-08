@@ -480,6 +480,7 @@ SENSOR_TYPES = {
     "pgm": {0x05},
     "panic_buttons": {0x01: ZoneSensorType("PB-101", SensorType.PANIC_BUTTON)},
     "panel": {0x00: ZoneSensorType("Powermaster", "Panel")},
+    "powerlink": {0x00: ZoneSensorType("Powerlink", "Powerlink")},
 }
 
 SYSTEM_STATUS = [

@@ -235,7 +235,9 @@ class B0Formatters:
                 "device_type": dev_type,
                 "zone": trouble[2] + 1,
                 "state": trouble[4],
-                "device_model": SENSOR_TYPES[dev_type].get(trouble[1])[0],
+                "device_model": SENSOR_TYPES[dev_type].get(trouble[1])[0]
+                if SENSOR_TYPES.get(dev_type)
+                else "Unknown",
                 "zone_name_id": trouble[7],
                 "trouble_code": trouble[5],
                 "device_type_id": trouble[0],
