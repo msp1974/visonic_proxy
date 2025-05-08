@@ -4,16 +4,30 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 import datetime as dt
+import http
 import itertools
 import json
 import logging
+import os
+import ssl
+import traceback
+from typing import Any
 
-from websockets import ConnectionClosed, WebSocketServerProtocol
-from websockets.server import serve
+from websockets import ConnectionClosed
+from websockets.asyncio.server import ServerConnection, serve
+from websockets.http11 import Request
 
 from visonic_proxy import __VERSION__
 
-from ..const import ACK, VIS_ACK, ConnectionName, MsgLogLevel
+from ..const import (
+    ACK,
+    LOGGER_NAME,
+    SETTINGS_DO_NOT_REQUEST,
+    STATUS_DO_NOT_REQUEST,
+    VIS_ACK,
+    ConnectionName,
+    MsgLogLevel,
+)
 from ..events import Event, EventType
 from ..managers.storage_manager import DataStore
 from ..message import QueuedMessage
@@ -24,6 +38,7 @@ from ..transcoders.helpers import (
     VPCommand,
     b2i,
     bits_to_le_bytes,
+    calculate_message_checksum,
     chunk_bytearray,
     get_lookup_value,
     ibit,
@@ -80,7 +95,7 @@ STATUS = "status"
 SETTINGS = "settings"
 EPROM = "eprom"
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class WebsocketServer:
@@ -104,7 +119,7 @@ class WebsocketServer:
         self.server_stop: asyncio.Future = None
         self.server_task: asyncio.Task = None
         self.send_processor_task: asyncio.Task | None = None
-        self.websockets: dict[str, WebSocketServerProtocol] = {}
+        self.websockets: dict[str, ServerConnection] = {}
 
         self.send_queue = asyncio.Queue()
 
@@ -130,7 +145,14 @@ class WebsocketServer:
 
             self.client_connected()
 
-            _LOGGER.info("Started Websocket server on port %s", self.port)
+            _LOGGER.info(
+                "Started Websocket server on port %s (%s, %s)",
+                self.port,
+                "SSL enabled" if self.proxy.config.WEBSOCKET_SSL else "SSL disabled",
+                "AUTH token required"
+                if self.proxy.config.WEBSOCKET_AUTH_KEY
+                else "AUTH token not required",
+            )
 
     async def run_server(self):
         """Run websocket server.
@@ -144,14 +166,58 @@ class WebsocketServer:
                 SEND_WEBSOCKET_STATUS_EVENT,
                 self.send_status,
             ),
+            self.proxy.events.subscribe(
+                ConnectionName.ALARM_MONITOR,
+                EventType.SUBSCRIBED_MESSAGE,
+                self.send_subscribed_message,
+            ),
+            self.proxy.events.subscribe(
+                ConnectionName.ALARM_MONITOR,
+                EventType.NEW_CAMERA_IMAGE,
+                self.send_image_message,
+            ),
         ]
 
         self.server_stop = self.proxy.loop.create_future()
 
-        server = await serve(self.client_handler, self.host, self.port)
-        await self.server_stop
-        server.close()
-        await server.wait_closed()
+        if self.proxy.config.WEBSOCKET_SSL:
+            certs_path = f"{os.path.dirname(os.path.dirname(os.path.realpath(__file__)))}/{self.proxy.config.SSL_CERT_PATH}"
+            # dir_path = os.path.dirname(os.path.realpath(__file__))
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.load_cert_chain(
+                certs_path + "/cert.pem",
+                certs_path + "/private.key",
+            )
+        else:
+            ssl_context = None
+
+        async with serve(
+            self.client_handler,
+            self.host,
+            self.port,
+            process_request=self.verify_authorisation,
+            ssl=ssl_context,
+        ):
+            await self.server_stop
+
+    def verify_authorisation(
+        self, websocket: ServerConnection, request: Request
+    ) -> bool:
+        """Verify auth token is set in config."""
+        if not self.proxy.config.WEBSOCKET_AUTH_KEY:
+            return None
+
+        if auth_header := request.headers.get("Authorization"):
+            if auth_header == f"Bearer {self.proxy.config.WEBSOCKET_AUTH_KEY}":
+                return None
+
+        _LOGGER.warning(
+            "Unauthorised websocket connection attempt from %s",
+            websocket.remote_address[0],
+        )
+        return websocket.respond(
+            http.HTTPStatus.UNAUTHORIZED, "Invalid or missing authorisation token\n"
+        )
 
     async def shutdown(self):
         """Stop websocket server."""
@@ -159,8 +225,6 @@ class WebsocketServer:
         for unsub in self._unsubscribe_listeners:
             unsub()
 
-        # for websocket in self.websockets.values():
-        #    await websocket.close_transport()
         if self.send_processor_task and not self.send_processor_task.done():
             self.send_processor_task.cancel()
 
@@ -193,11 +257,18 @@ class WebsocketServer:
     def disconnect_client(self, client_id: str):
         """Disconnect client."""
 
-    async def client_handler(self, websocket: WebSocketServerProtocol):
+    async def client_handler(self, websocket: ServerConnection):
         """Websocket handler."""
-        self.websockets[websocket.id] = websocket
 
-        await websocket.send(json.dumps({"connection": "success"}))
+        client_ip = websocket.remote_address[0]
+        _LOGGER.info(
+            "Websocket client connected from %s",
+            client_ip,
+        )
+        self.websockets[websocket.id] = websocket
+        websocket.respond(
+            http.HTTPStatus.ACCEPTED, json.dumps({"connection": "success"})
+        )
 
         while True:
             try:
@@ -206,7 +277,9 @@ class WebsocketServer:
                 _LOGGER.info(
                     "Received websocket message: %s", msg, extra=MsgLogLevel.L5
                 )
-                response, send_status = await self.websocket_receive_message(msg)
+                response, send_status = await self.websocket_receive_message(
+                    websocket.id, msg
+                )
                 if response:
                     if isinstance(response, dict):
                         await websocket.send(json.dumps(response))
@@ -224,7 +297,53 @@ class WebsocketServer:
                 continue
             except ConnectionClosed:
                 del self.websockets[websocket.id]
+                _LOGGER.info(
+                    "Websocket client disconnected from %s",
+                    client_ip,
+                )
                 break
+
+    async def send_image_message(self, event: Event):
+        """Send broadcast message with image info and raw image data."""
+        if event.event_data:
+            image_info = event.event_data.get("image_info")
+            image_data: bytes = event.event_data.get("data")
+
+            msg = {"new_image": {"image_info": image_info, "image": image_data.hex()}}
+            await self.broadcast(json.dumps(msg))
+
+    async def send_subscribed_message(self, event: Event):
+        """Send subscribed message to websocket connections."""
+
+        if event.event_data:
+            if clients := event.event_data.get("client_ids"):
+                if cmd := event.event_data.get("command"):
+                    _LOGGER.info(
+                        "Sending subscribed message - %s", cmd, extra=MsgLogLevel.L5
+                    )
+                    msg = {
+                        "subscribed_message": {
+                            "command": cmd,
+                            "datetime": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "message": event.event_data.get("message"),
+                            "data": event.event_data.get("data"),
+                        }
+                    }
+                    await self.send_ws_message(clients, json.dumps(msg))
+
+    async def send_ws_message(
+        self, clients: str | list[str], message: str | dict[str, Any]
+    ):
+        """Send message over websocket(s)."""
+        if isinstance(clients, str):
+            clients = [clients]
+
+        if isinstance(message, dict):
+            message = json.dumps(message)
+
+        for client in clients:
+            if websocket := self.websockets.get(client):
+                await websocket.send(message)
 
     async def broadcast(self, message):
         """Send message to all websocket clients."""
@@ -256,7 +375,43 @@ class WebsocketServer:
             return False
         return True
 
-    async def websocket_receive_message(self, msg: dict | str):
+    def add_subscription(self, client_id: str, commands: str | list[str]) -> list[str]:
+        """Add to subscribed messages for websocket client."""
+        if not isinstance(commands, list):
+            commands = [commands]
+
+        if subs := self.visonic_client.subscribed_messages.get(client_id) or []:
+            subs.extend(commands)
+
+            # Remove duplicates
+            subs = list(set(subs))
+
+            self.visonic_client.subscribed_messages[client_id] = subs
+            return subs
+
+        self.visonic_client.subscribed_messages[client_id] = commands
+        return commands
+
+    def remove_subscription(
+        self, client_id: str, commands: str | list[str]
+    ) -> list[str]:
+        """Remove a subscription for a message for a websocket client."""
+        if not isinstance(commands, list):
+            commands = [commands]
+
+        if subs := self.visonic_client.subscribed_messages.get(client_id) or []:
+            for cmd in commands:
+                if cmd == "all":
+                    del self.visonic_client.subscribed_messages[client_id]
+                    return []
+                if cmd in subs:
+                    subs.remove(cmd)
+
+            self.visonic_client.subscribed_messages[client_id] = subs
+            return subs
+        return []
+
+    async def websocket_receive_message(self, client_id: str, msg: dict | str):  # noqa: C901
         """Receive message from websocket."""
         result = None
         send_status = False
@@ -265,6 +420,21 @@ class WebsocketServer:
                 result = await self.visonic_client.get_panel_status(
                     refresh_key_data=True
                 )
+            elif request == "subscribe":
+                if cmds := msg.get("commands"):
+                    subs = self.add_subscription(client_id, cmds)
+                    result = {
+                        "result": "success",
+                        "subscriptions": subs,
+                    }
+            elif request == "unsubscribe":
+                if cmds := msg.get("commands"):
+                    subs = self.remove_subscription(client_id, cmds)
+                    result = {
+                        "result": "success",
+                        "subscriptions": subs,
+                    }
+
             elif self.visonic_client.is_init:
                 if request in ["turn_on", "turn_off"]:
                     dev_item = msg.get("type")
@@ -287,6 +457,24 @@ class WebsocketServer:
                                 msg["result"] = "success"
                                 result = msg
                                 send_status = False
+                elif request == "siren":
+                    if action := msg.get("action"):
+                        if (
+                            user_code
+                            := await self.visonic_client.get_master_user_code()
+                        ):
+                            if action == "sound":
+                                await self.visonic_client.sound_siren(user_code)
+                            elif action == "mute":
+                                await self.visonic_client.mute_siren(user_code)
+
+                elif request == "image":
+                    if zone := msg.get("zone"):
+                        await self.visonic_client.request_image(int(zone))
+                        result = {
+                            "request": "image",
+                            "result": "success",
+                        }
 
                 elif request == "command":
                     cmd = str(msg.get("id"))
@@ -296,7 +484,6 @@ class WebsocketServer:
                         and cmd
                         not in [
                             "06",
-                            "0f",
                             "17",
                             "35",
                             "42",
@@ -320,10 +507,11 @@ class WebsocketServer:
                         }
                 elif request == "setting":
                     setting = int(msg.get("id"))
+                    use_42 = msg.get("use_42", False)
                     if setting is not None and setting not in [83, 413]:
                         setting_name = get_lookup_value(Command35Settings, setting)
                         response = await self.visonic_client.get_setting(
-                            setting, refresh=True
+                            setting, refresh=True, use_42=use_42
                         )
                         result = {
                             "setting": setting,
@@ -344,8 +532,9 @@ class WebsocketServer:
 
                 elif request == "all_settings":
                     known_only = msg.get("known_only", True)
+                    use_42 = msg.get("use_42", False)
                     result = await self.visonic_client.download_all_settings(
-                        known_only=known_only
+                        known_only=known_only, use_42=use_42
                     )
 
                 elif request == "send_raw_command":
@@ -496,6 +685,8 @@ class VisonicClient:
             self.initialise_data(), name="Init Waiter"
         )
 
+        self.subscribed_messages = {}
+
     def stop(self):
         """Stop queue."""
         if self.send_processor_task and not self.send_processor_task.done():
@@ -589,7 +780,11 @@ class VisonicClient:
                             self.process_message(message_class, dec)
                         )
                 except Exception as ex:  # noqa: BLE001
-                    _LOGGER.error(ex)
+                    _LOGGER.error(
+                        "Unknown websocket error.  Error is: %s\n%s",
+                        ex,
+                        traceback.format_exc(),
+                    )
 
             elif message_class == MessageClass.E0:
                 # Process E0 message from CM.
@@ -640,6 +835,14 @@ class VisonicClient:
             if count >= self.proxy.config.INVALID_MESSAGE_THRESHOLD:
                 return True
         return False
+
+    def message_subscriptions(self, command: str) -> list[str]:
+        """Get subscription client ids for command message."""
+        return [
+            client
+            for client, subs in self.subscribed_messages.items()
+            if command in subs
+        ]
 
     async def process_message(
         self, message_class: str, dec: B0Message | STDMessage | CMStatus
@@ -695,6 +898,25 @@ class VisonicClient:
                         self.datastore.get_status(f"{dec.cmd}_{command_name}"),
                         extra=MsgLogLevel.L4,
                     )
+                    # Send subscribed message
+                    if clients := self.message_subscriptions(dec.cmd):
+                        _LOGGER.info(
+                            "Subscribed message received - firing event",
+                            extra=MsgLogLevel.L5,
+                        )
+                        self.proxy.events.fire_event(
+                            Event(
+                                name=ConnectionName.ALARM_MONITOR,
+                                event_type=EventType.SUBSCRIBED_MESSAGE,
+                                client_id=0,
+                                event_data={
+                                    "command": dec.cmd,
+                                    "client_ids": clients,
+                                    "message": dec.data,
+                                    "data": dec.raw_data,
+                                },
+                            )
+                        )
 
             # Response to a 51 message
             if dec.cmd in [B0CommandName.ASK_ME, B0CommandName.ASK_ME2] and dec.data:
@@ -889,18 +1111,21 @@ class VisonicClient:
         return self.datastore.get_status(status_name)
 
     async def get_setting(
-        self, setting: int, refresh: bool = False
+        self, setting: int, refresh: bool = False, use_42: bool = False
     ) -> dict | list | str:
         """Get settings value from datastore.  Refresh if requested or does not exist in store."""
         setting_name = f"{setting}_{get_lookup_value(Command35Settings, setting)}"
-        if refresh or self.datastore.get_setting(setting_name) is None:
+        if refresh or self.datastore.get_setting(setting_name, s42=use_42) is None:
             setting_id = setting.to_bytes(2, byteorder="little")
+            setting_cmd = "42" if use_42 else "35"
             msg = self.message_builder.message_preprocessor(
-                bytes.fromhex(f"b0 35 {setting_id.hex(" ")}")
+                bytes.fromhex(f"b0 {setting_cmd} {setting_id.hex(' ')}")
             )
-            await self.send_message_and_wait(msg.data, [ACK, f"35_{setting!s}"])
+            await self.send_message_and_wait(
+                msg.data, [ACK, f"{setting_cmd}_{setting!s}"]
+            )
 
-        return self.datastore.get_setting(setting_name)
+        return self.datastore.get_setting(setting_name, s42=use_42)
 
     async def get_eprom_setting(
         self, setting: EPROMSetting, refresh: bool = False
@@ -916,7 +1141,7 @@ class VisonicClient:
         ) and await self.can_download():
             await self.send_message_and_wait(VPCommand("download", True))
             wait_for = ["3f"]
-            msg = f"3e {int(setting_info.position).to_bytes(2, "little").hex(" ")} {setting_info.length:02x} 00 b0 00 00 00 00 00"
+            msg = f"3e {int(setting_info.position).to_bytes(2, 'little').hex(' ')} {setting_info.length:02x} 00 b0 00 00 00 00 00"
             await self.send_message_and_wait(bytes.fromhex(msg), wait_for)
             await self.send_message_and_wait(VPCommand("download", False))
 
@@ -938,7 +1163,7 @@ class VisonicClient:
         for i in range(0, len(statuses), per_request):
             wait_for = [f"{status}" for status in statuses[i : i + per_request]]
             request_list = list(statuses[i : i + per_request])
-            request = f"b0 17 {" ".join(request_list)}"
+            request = f"b0 17 {' '.join(request_list)}"
             msg = self.message_builder.message_preprocessor(bytes.fromhex(request))
             wait_for.append(ACK)
             await self.send_message_and_wait(msg.data, wait_for)
@@ -948,7 +1173,7 @@ class VisonicClient:
             await self.send_message_and_wait(VPCommand("stealth", False))
 
     async def download_settings(
-        self, settings: int | list[int], set_stealth: bool = False
+        self, settings: int | list[int], set_stealth: bool = False, use_42: bool = False
     ):
         """Iterate settings and store in alarm data."""
 
@@ -959,15 +1184,17 @@ class VisonicClient:
             await self.send_message_and_wait(VPCommand("stealth", True))
 
         settings_per_request = 6
+        setting_cmd = "42" if use_42 else "35"
         for i in range(0, len(settings), settings_per_request):
             wait_for = [
-                f"35_{setting}" for setting in settings[i : i + settings_per_request]
+                f"{setting_cmd}_{setting}"
+                for setting in settings[i : i + settings_per_request]
             ]
             request_list = [
                 i.to_bytes(2, byteorder="little").hex(" ")
                 for i in settings[i : i + settings_per_request]
             ]
-            request = f"b0 35 {" ".join(request_list)}"
+            request = f"b0 {setting_cmd} {' '.join(request_list)}"
             msg = self.message_builder.message_preprocessor(bytes.fromhex(request))
             wait_for.append(ACK)
             await self.send_message_and_wait(msg.data, wait_for)
@@ -1001,36 +1228,41 @@ class VisonicClient:
             for eprom_setting in eprom_settings:
                 wait_for = ["3f"]
                 eprom_setting_def = EPROMSettingLookup[eprom_setting]
-                msg = f"3e {int(eprom_setting_def.position).to_bytes(2, "little").hex(" ")} {eprom_setting_def.length:02x} 00 b0 00 00 00 00 00"
+                msg = f"3e {int(eprom_setting_def.position).to_bytes(2, 'little').hex(' ')} {eprom_setting_def.length:02x} 00 b0 00 00 00 00 00"
                 await self.send_message_and_wait(bytes.fromhex(msg), wait_for)
             await self.send_message_and_wait(VPCommand("download", False))
 
     async def download_all_statuses(self, known_only: bool = True):
         """Request all known statuses."""
-        ignore_list = ["06", "0f", "17", "35", "39", "42", "51", "6a"]
         statuses = [
-            status.value for status in B0CommandName if status.value not in ignore_list
+            status.value
+            for status in B0CommandName
+            if status.value not in STATUS_DO_NOT_REQUEST
         ]
         await self.download_statuses(statuses, set_stealth=True)
 
         return self.datastore.get_all_statuses()
 
-    async def download_all_settings(self, known_only: bool = True):
+    async def download_all_settings(
+        self, known_only: bool = True, use_42: bool = False
+    ):
         """Count to 441 and request all settings."""
-        ignore_list = [83, 413]
-
-        if known_only:  # noqa: SIM108
+        if known_only:
             settings = [
                 setting.value
                 for setting in Command35Settings
-                if setting.value not in ignore_list
+                if setting.value not in SETTINGS_DO_NOT_REQUEST
             ]
         else:
-            settings = [setting for setting in range(441) if setting not in ignore_list]
+            settings = [
+                setting
+                for setting in range(441)
+                if setting not in SETTINGS_DO_NOT_REQUEST
+            ]
 
-        await self.download_settings(settings, set_stealth=True)
+        await self.download_settings(settings, set_stealth=True, use_42=use_42)
 
-        return self.datastore.get_all_settings()
+        return self.datastore.get_all_settings(s42=use_42)
 
     async def download_all_eprom_settings(self):
         """Download all known eprom settings."""
@@ -1041,7 +1273,7 @@ class VisonicClient:
             eprom_settings = [setting.value for setting in EPROMSetting]
             for eprom_setting in eprom_settings:
                 eprom_setting_def = EPROMSettingLookup[eprom_setting]
-                msg = f"3e {int(eprom_setting_def.position).to_bytes(2, "little").hex(" ")} {eprom_setting_def.length:02x} 00 b0 00 00 00 00 00"
+                msg = f"3e {int(eprom_setting_def.position).to_bytes(2, 'little').hex(' ')} {eprom_setting_def.length:02x} 00 b0 00 00 00 00 00"
                 await self.send_message_and_wait(bytes.fromhex(msg), wait_for)
             await self.send_message_and_wait(VPCommand("download", False))
 
@@ -1062,6 +1294,11 @@ class VisonicClient:
                 event_data={"refresh": refresh_key_data},
             ),
         )
+
+    async def get_master_user_code(self) -> str | None:
+        """Get master user code."""
+        if user_codes := await self.get_setting(Command35Settings.USER_CODES):
+            return user_codes[0]
 
     async def get_panel_status(self, refresh_key_data: bool = False):
         """Get current panel status."""
@@ -1221,7 +1458,7 @@ class VisonicClient:
                     if i.get("assigned_name_id", 255) != 255:
                         i["name"] = zone_names[i.get("assigned_name_id")]
                     else:
-                        i["name"] = f"{dev_type.title()} {d+1}"
+                        i["name"] = f"{dev_type.title()} {d + 1}"
 
                         if SENSOR_TYPES.get(dev_type):
                             try:
@@ -1242,7 +1479,7 @@ class VisonicClient:
                                     )
                                     i["device_type"] = dev_type.title()
                                     i["device_model"] = (
-                                        f"{dev_type.title()}-{i["device_type_id"]}"
+                                        f"{dev_type.title()}-{i['device_type_id']}"
                                     )
                             except KeyError:
                                 _LOGGER.error(
@@ -1410,7 +1647,7 @@ class VisonicClient:
         zone_data = bits_to_le_bytes(zones, 64)
         download_code = await self.get_setting(Command35Settings.DOWNLOAD_CODE)
 
-        data = bytes.fromhex(f"00 ff 01 03 08 {zone_data.hex(" ")}")
+        data = bytes.fromhex(f"00 ff 01 03 08 {zone_data.hex(' ')}")
         message = self.message_builder.build_b0_add_remove_message(
             MessageType.ADD if enable else MessageType.REMOVE, "19", download_code, data
         )
@@ -1441,7 +1678,7 @@ class VisonicClient:
         if duration is not None:
             # Use a 7a message to enable for duration
             data = bytes.fromhex(
-                f"01 ff 20 0b 04 {pgm_data.hex(" ")} {(duration.to_bytes(2, "little")).hex(" ")}"
+                f"01 ff 20 0b 04 {pgm_data.hex(' ')} {(duration.to_bytes(2, 'little')).hex(' ')}"
             )
             message = self.message_builder.build_b0_add_remove_message(
                 MessageType.ADD, "7a", download_code, data
@@ -1449,7 +1686,7 @@ class VisonicClient:
 
         else:
             data = bytes.fromhex(
-                f"{"01" if enable else "00"} ff 08 0b 02 {pgm_data.hex(" ")}"
+                f"{'01' if enable else '00'} ff 08 0b 02 {pgm_data.hex(' ')}"
             )
             message = self.message_builder.build_b0_add_remove_message(
                 MessageType.ADD, "27", download_code, data
@@ -1458,3 +1695,31 @@ class VisonicClient:
         if message:
             await self.send_message_and_wait(message.data, [ACK])
             return True
+
+    async def sound_siren(self, user_code: str):
+        """Make siren sound."""
+        data = bytes.fromhex("05 ff 08 02 03 00 00 01")
+        message = self.message_builder.build_b0_add_remove_message(
+            MessageType.ADD, B0CommandName.SIREN_CONTROL, user_code, data
+        )
+        await self.send_message_and_wait(message.data, [ACK])
+
+    async def mute_siren(self, user_code: str):
+        """Stop siren sounding."""
+        message = f"a1 00 00 0b {user_code[:2]} {user_code[2:4]} 00 00 00 00 00 43"
+        crc = calculate_message_checksum(bytes.fromhex(message)).hex()
+        message = f"0d {message} {crc} 0a"
+
+        await self.send_message_and_wait(bytes.fromhex(message), [ACK])
+
+    async def request_image(self, zone: int, images: int = 1):
+        """Send a standard message to panel requesting an image from zone camera."""
+
+        message = f"ad 0b {zone:02x} {images:02x} ff ff 00 00 00 00 00 43"
+        crc = calculate_message_checksum(bytes.fromhex(message)).hex()
+        message = f"0d {message} {crc} 0a"
+
+        await self.send_message_and_wait(bytes.fromhex(message), [ACK])
+        # TODO: Panel sends a response to this message which will show if image will be sent.  Need to get that
+        # and use to determine response.
+        return True

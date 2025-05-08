@@ -13,10 +13,19 @@ STD_FORMAT = "%(asctime)s %(levelname)-8s %(message)10s"
 class MessageLevelFilter(logging.Filter):
     """Filter messages by message level."""
 
+    def __init__(self, message_log_level: int = Config.MESSAGE_LOG_LEVEL):
+        """Initialise."""
+        super().__init__()
+        self.message_log_level = message_log_level
+
+    def set_message_log_level(self, message_log_level: int):
+        """Set log level."""
+        self.message_log_level = message_log_level
+
     def filter(self, record):
         """Apply filter."""
         if (
-            record.__dict__.get("msglevel", 0) <= Config.MESSAGE_LOG_LEVEL
+            record.__dict__.get("msglevel", 0) <= self.message_log_level
             or record.levelno == logging.DEBUG
         ):
             return True
@@ -61,44 +70,55 @@ class CustomStreamFormatter(CustomFileFormatter):
         return message
 
 
-def get_format_string() -> str:
-    """Get format string."""
-    if Config.LOG_LEVEL == logging.DEBUG:
-        return DEBUG_FORMAT
-    return STD_FORMAT
+class VPLogger:
+    """Class to handle custom logger."""
 
+    def __init__(
+        self,
+        log_file: str = Config.LOG_FILE,
+        log_level: int = Config.LOG_LEVEL,
+        message_log_level: int = Config.MESSAGE_LOG_LEVEL,
+    ):
+        """Initialise."""
+        self.log_file = log_file
+        self.log_level = log_level
+        self.message_log_level = message_log_level
 
-# Add logging handlers
-handlers = []
+        # Setup message filter
+        self.message_filter = MessageLevelFilter(self.message_log_level)
 
-message_filter = MessageLevelFilter()
+        # Init logger
+        handlers = []
 
+        # File handler
+        if self.log_file:
+            self.f_handler = RotatingFileHandler(
+                self.log_file, backupCount=Config.LOG_FILES_TO_KEEP
+            )
+            f_fmt = CustomFileFormatter(DEBUG_FORMAT)
+            self.f_handler.setFormatter(f_fmt)
+            self.f_handler.addFilter(self.message_filter)
+            handlers.append(self.f_handler)
 
-# File handler
-if Config.LOG_FILE:
-    f_handler = RotatingFileHandler(
-        Config.LOG_FILE, backupCount=Config.LOG_FILES_TO_KEEP
-    )
-    f_fmt = CustomFileFormatter(DEBUG_FORMAT)
-    f_handler.setFormatter(f_fmt)
-    f_handler.addFilter(message_filter)
-    handlers.append(f_handler)
+        # Stream handler to stdout
+        s_handler = logging.StreamHandler(sys.stdout)
+        s_fmt = CustomStreamFormatter(self.get_format_string())
+        s_handler.setFormatter(s_fmt)
+        s_handler.addFilter(self.message_filter)
+        handlers.append(s_handler)
 
-# Stream handler to stdout
-s_handler = logging.StreamHandler(sys.stdout)
-s_fmt = CustomStreamFormatter(get_format_string())
-s_handler.setFormatter(s_fmt)
-s_handler.addFilter(message_filter)
-handlers.append(s_handler)
+        # Initiate logger
+        self.logger = logging.getLogger("visonic_proxy")
+        self.logger.setLevel(self.log_level)
+        for handler in handlers:
+            self.logger.addHandler(handler)
 
-# Initiate logger
-_LOGGER = logging.getLogger("visonic_proxy")
-_LOGGER.setLevel(Config.LOG_LEVEL)
-for handler in handlers:
-    _LOGGER.addHandler(handler)
-# _LOGGER.handlers = handlers
+    def rollover(self):
+        """Rollover log file."""
+        self.f_handler.doRollover()
 
-
-def rollover():
-    """Rollover log file."""
-    f_handler.doRollover()
+    def get_format_string(self) -> str:
+        """Get format string."""
+        if self.log_level == logging.DEBUG:
+            return DEBUG_FORMAT
+        return STD_FORMAT

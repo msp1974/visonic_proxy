@@ -88,7 +88,9 @@ class B0Decoder:
                 formatted = []
                 if formatter := self.get_specific_formatter(["42", "35"], setting):
                     # if list of lists, process each list through formatter
-                    if any(isinstance(le, list) for le in decoded_format):
+                    if isinstance(decoded_format, list) and any(
+                        isinstance(le, list) for le in decoded_format
+                    ):
                         for data_item in decoded_format:
                             format_result = getattr(B0Formatters(), formatter)(
                                 data_item

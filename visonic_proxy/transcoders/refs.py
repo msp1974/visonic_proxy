@@ -56,9 +56,10 @@ class ArmModes(IntEnum):
 class B0CommandName(StrEnum):
     """B0 Message command."""
 
-    WIRELESS_DEVICES_00 = "00"
+    WIRELESS_DEVICES_00 = "00"  # bits relate to bit 7 of devices (58)
     WIRELESS_DEVICES_01 = "01"  # Investigate more
     WIRELESS_DEVICE_UPDATING = "02"  # Investigate more
+    PANEL_TYPE = "03"  # Returns [25,7] on PM10, [25,8] on PM30
     WIRELESS_DEVICE_CHANNEL = "04"
     WIRELESS_DEVICES_05 = "05"  # Investigate more
     INVALID_COMMAND = "06"
@@ -95,11 +96,11 @@ class B0CommandName(StrEnum):
     SYSTEM_CAPABILITIES = "22"  # This gives wrong values.  Use 35 07 00
     UNKNOWN_23 = "23"  # PM10 returned 19 bytes all 0
     PANEL_STATUS = "24"
-    UNKNOWN_25 = "25"  # PM returned 1 byte - 0
+    UNKNOWN_25 = "25"  # PM 30 returned 1 byte - 0, PM 10 return 1 byte - 9
     # 26 invalid
     WIRED_DEVICES_STATUS = "27"  # Can send 00 and 04 to turn on/off with download code - on 0d b0 00 27 09 aa aa 11 ff 08 0b 02 01 00 43 5f 0a, off - 0d b0 00 27 09 aa aa 10 ff 08 0b 02 01 00 43 60 0a - see 7a for timed on
     WIRED_DEVICES_SOMETHING_28 = "28"
-    UNKNOWN_29 = "29"  # PM10 returned [0, 0, 64, 96, 144, 176, 184, 188, 205, 206, 238, 188, 246]
+    UNKNOWN_29 = "29"  # PM10/30 returned [0, 0, 64, 96, 144, 176, 184, 188, 205, 206, 238, 188, 246]
     STANDARD_EVENT_LOG = "2a"  # Sends 58 pages of data! With 1000, 10 byte entries
     TYPE_OFFSETS = "2b"  # PM10 and PM30 returned same - [2097, 1617, 2049, 1, 1793, 1281, 1281, 2129, 2166, 2168, 1281, 2129, 0, 2169, 0, 0, 0, 0, 2176, 2177]
     # 2c is invalid command
@@ -119,7 +120,8 @@ class B0CommandName(StrEnum):
     ZONES_3A = "3a"  # Some zone info in bits
     # 3b, 3c are invalid
     ZONE_TEMPS = "3d"
-    # 3e, 3f - invalid
+    SIREN_CONTROL = "3e"  # Only seems to be a 00 type message ie 0d b0 00 3e 0a 31 80 05 ff 08 02 03 00 00 01 43 fe 0a sounds siren 0.  Could also control other things as 02 is siren index
+    # 3f - invalid
     WIRELESS_DEVICES_40 = "40"  # Some zone info - has data for each zone in use 04 (04 06 for 1&2 on PM10)
     # 41 gets no response
     SETTINGS_42 = "42"  # Need a parameter for the setting - see b0_42_command.py
@@ -130,24 +132,22 @@ class B0CommandName(StrEnum):
     # 4a invalid
     ZONE_LAST_EVENT = "4b"
     # 4c, 4d invalid
-    ZONES_4E = "4e"  # some zone info in 64 bits - all 0
+    SOAK_TEST_ZONES = "4e"
     ZONES_4F = "4f"  # some zone info in 64 bits - all 0
     ZONES_50 = "50"  # some zone info in 2 byte words - all 0
     ASK_ME = "51"
-    DEVICE_COUNTS = "52"
+    PANEL_INFO = "52"  # Gives [25,7,0,2,0,1] on PM10, [25,8,0,2,0,1] on PM30
     WIRED_DEVICES_SOMETHING_53 = "53"
     TROUBLES = "54"
     REPEATERS_SOMETHING_55 = "55"
-    UNKNOWN_56 = "56"  # PM10 returned [3, 0, 2, 2, 6, 0, 0]
+    UNKNOWN_56 = "56"  # PM10/30 returned [3, 0, 2, 2, 6, 0, 0]
     UNKNOWN_57 = "57"
     DEVICE_INFO = "58"
     GSM_STATUS = "59"
     # 5a invalid
     KEYPADS = "5b"
-    # 5c invalid
-    DEVICES_5D = "5d"  # PM10 gave invalid
-    # 5e, 5f, 60, 61 invalid
-    UNKNOWN_62 = "62"  # PM10 returned [100]
+    # 5c, 5d, 5e, 5f, 60, 61 invalid
+    UNKNOWN_62 = "62"  # PM10/30 returned [100]
     # 63 invalid
     PANEL_SOFTWARE_VERSION = "64"
     # 65 invalid
@@ -155,13 +155,11 @@ class B0CommandName(StrEnum):
     # 67, 68 invalid
     PANEL_EPROM_AND_SW_VERSION = "69"  # PM10 gave invalid
     KEEP_ALIVE = "6a"
-    # 6b 6c invalid
-    UNKNOWN_6D = "6d"  # PM10 gave invalid
-    UNKNOWN_6E = "6e"  # PM10 return ['01 00 00']
+    # 6b 6c 6d invalid
+    UNKNOWN_6E = "6e"  # PM10/30 return ['01 00 00'] even with 2 active partitions
     # 6f, 70 invalid
-    PANEL_SOMETHING_71 = "71"
-    # 72, 73 invalid
-    UNKNOWN_74 = "74"  # PM10 returned invalid
+    PANEL_SOMETHING_71 = "71"  # PM10/30 returned single byte - 02
+    # 72, 73, 74 invalid
     SOME_LOG_75 = "75"
     IOVS = "76"
     ZONE_BRIGHTNESS = "77"
@@ -381,7 +379,7 @@ class IndexName(IntEnum):
     PARTITIONS = 15
     UNK16 = 16
     EXPANDER_33 = 17
-    IOV = 18
+    IOV = 18  # IOV is the IO expansion module
     UNK19 = 19
     UNK20 = 20
     NA = 255
@@ -445,6 +443,7 @@ class SensorType(IntEnum):
     SOUND = 10
     KEYFOB = 50
     KEYPAD = 60
+    PANIC_BUTTON = 70
 
 
 ZoneSensorType = collections.namedtuple("ZoneSensorType", "name func")
@@ -479,6 +478,8 @@ SENSOR_TYPES = {
     "sirens": {0x01: ZoneSensorType("SR-740 PG2", SensorType.SOUND)},
     "keypads": {0x05: ZoneSensorType("KP-160 PG2", SensorType.KEYPAD)},
     "pgm": {0x05},
+    "panic_buttons": {0x01: ZoneSensorType("PB-101", SensorType.PANIC_BUTTON)},
+    "panel": {0x00: ZoneSensorType("Powermaster", "Panel")},
 }
 
 SYSTEM_STATUS = [
@@ -514,6 +515,52 @@ SYSTEM_STATUS = [
     "??",
     "??",
     "??",
+]
+
+TROUBLES = [
+    "Unknown",
+    # 1
+    "Preenroll No Code",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "1 Way",
+    # 10
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Burglary Alarm",
+    "Unknown",
+    "Unknown",
+    "Tamper Memory",
+    # 20
+    "Opened",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Tamper",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    # 30
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
+    "Unknown",
 ]
 
 EVENTS = [

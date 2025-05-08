@@ -9,14 +9,14 @@ import traceback
 
 from urllib3.exceptions import ConnectTimeoutError
 
-from ..const import VIS_ACK, MsgLogLevel
+from ..const import LOGGER_NAME, VIS_ACK, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
 from ..proxy import Proxy
 from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class ClientConnection:

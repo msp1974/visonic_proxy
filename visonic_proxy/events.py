@@ -9,11 +9,11 @@ import logging
 import traceback
 from typing import Callable
 
-from visonic_proxy.const import ConnectionName
+from visonic_proxy.const import LOGGER_NAME, ConnectionName
 
 ALL_CLIENTS = "all"
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class EventType(StrEnum):
@@ -29,6 +29,8 @@ class EventType(StrEnum):
     SEND_KEEPALIVE = "keepalive"
     ACK_TIMEOUT = "ack_timeout"
     SET_MODE = "set_mode"
+    SUBSCRIBED_MESSAGE = "subscribed_message"
+    NEW_CAMERA_IMAGE = "camera_image"
 
 
 @dataclass
@@ -63,7 +65,6 @@ class Events:
             self.listeners[event_id].append(callback)
         else:
             self.listeners[event_id] = [callback]
-        # log_message("LISTENERS: %s", self.listeners, level=2)
         return partial(self._unsubscribe, event_id, callback)
 
     def _unsubscribe(self, event_id: str, callback: Callable):
@@ -93,7 +94,6 @@ class Events:
                         _LOGGER.debug("Event: %s", event)
                         if inspect.iscoroutinefunction(callback):
                             await callback(event)
-                            await asyncio.gather()
                         else:
                             callback(event)
                 except Exception as ex:  # noqa: BLE001
@@ -108,3 +108,7 @@ class Events:
             self._async_fire_event(event), name=f"Fire Event - {event.event_type}"
         )
         return True
+
+    async def async_fire_event(self, event: Event):
+        """Notify event to all listeners."""
+        await self._async_fire_event(event)

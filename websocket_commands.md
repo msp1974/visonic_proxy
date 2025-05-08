@@ -15,6 +15,21 @@ The status command will return a standard status output of the panel.  If the Vi
 {"request":"status"}
 ```
 
+## Subscribe & Unsubscribe
+
+Allows subscribing to specific command message responses which will be sent when they are received from the alarm panel.  You can pass an individual or a list of commands to subscribe or unsubscribe to.  For unsubscribe, you can also send a command of all to unsubscribe to all messages.
+```
+{"request":"subscribe", "commands":"54"}
+
+{"request":"subscribe", "commands":["13","54"]}
+
+{"request":"unsubscribe", "commands":"54"}
+
+{"request":"unsubscribe", "commands":["13","54"]}
+
+{"request":"unsubscribe", "commands":"all"}
+```
+
 ## Command
 
 You can issue any status command by id to the websocket client and it will request from the alarm panel and return a json decoded version of the response.  Command ids are as per the list of B0 status commands and must be a hex string ie "0a", "00" etc.
@@ -67,6 +82,14 @@ State Id relates to the state id of the arming type as per the list below.  Part
     Arm Away = 5
     Arm Instant Home = 14
     Arm Instant Away = 15
+
+## Request Image
+
+You can request images from your camera PIR sensors and they will be sent as a binary websocket message when the panel receives it.  It can take some time for this to happen.  The command requires you to provide the zone id of the camera zone you wish to receive and image for.  ****Are there any panel config items needed for this to work??  Upload film needs to be enabled.  Need to capture error response if it is not and provide fail message.****
+
+```
+{"request":"image", "zone": 2}
+```
 
 ## Send Raw Message
 

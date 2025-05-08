@@ -5,14 +5,19 @@ Responds to POST reqest with simple response.
 
 import asyncio
 import contextlib
+import datetime as dt
+import io
 import json
 import logging
+import os
+import re
 import time
 
+from PIL import Image
 import requests
 import urllib3
 
-from ..const import ConnectionName, MsgLogLevel
+from ..const import LOGGER_NAME, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..proxy import Proxy
 from .httpserver.server import HttpServer, uri_pattern_mapping
@@ -20,7 +25,7 @@ from .httpserver.utils import HttpHeaders, HttpRequest, HttpResponse
 
 urllib3.disable_warnings()
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class Connect:
@@ -35,6 +40,7 @@ class MyHandler:
     def __init__(self, proxy: Proxy, request_connect: bool):
         """Initialise."""
         self.proxy = proxy
+        self.request_connect = request_connect
 
     async def forward_request(self, request: HttpRequest) -> requests.Response:
         """Forward request and return response."""
@@ -103,7 +109,7 @@ class MyHandler:
                     headers = HttpHeaders()
                     for k, v in res.headers.items():
                         if k == "Content-Length":
-                            # Ajust content length if we have added connect command
+                            # Adjust content length if we have added connect command
                             headers.add(k, len(resp))
                         else:
                             headers.add(k, v)
@@ -112,6 +118,82 @@ class MyHandler:
 
             else:
                 await self.send_man_response()
+        elif self.proxy.config.PROXY_MODE:
+            if res := await self.forward_request(request):
+                response = res.content
+                _LOGGER.info("RESPONSE: %s", response, extra=MsgLogLevel.L5)
+
+                if request.path == "/scripts/pir_film.php":
+                    await self.decode_image(request.body)
+
+                headers = HttpHeaders()
+                for k, v in res.headers.items():
+                    headers.add(k, v)
+                return HttpResponse(res.status_code, headers, res.content)
+
+    async def decode_image(self, data: bytes):
+        """Decode image."""
+        image_json = {}
+        keys = [
+            "version",
+            "serial",
+            "camera",
+            "cameraTrigger",
+            "film",
+            "file",
+            "index",
+            "frameNum",
+            "frameRate",
+            "fileType",
+            "filmType",
+            "filesCount",
+        ]
+        for key in keys:
+            keystr = f"{key}: (.*?)\r\n"
+            match = re.search(bytes(keystr, "ascii"), data)
+            if match:
+                image_json[key] = match.group(1).decode("utf-8")
+            else:
+                image_json[key] = None
+
+        _LOGGER.info(
+            "RECEIVED CAMERA IMAGE %s of %s",
+            int(image_json["frameNum"]) + 1,
+            image_json["filesCount"],
+            extra=MsgLogLevel.L3,
+        )
+        _LOGGER.info("IMAGE INFO: %s", image_json, extra=MsgLogLevel.L5)
+
+        # Remove image bytes size at start of image data
+        data = data.split(b"\r\ndata: ")[1]
+        data = data.split(b"\r\n")[1]
+
+        im = Image.open(io.BytesIO(data))
+
+        dt_now = dt.datetime.now().strftime("%Y%m%d%H%M%S")
+        filename = f"{image_json['serial']}_zone{image_json['camera']}_{image_json['frameNum']}_{dt_now}.jpg"
+        path = "./images"
+
+        # Verify cert directory exists and create if not
+        if not os.path.isdir(path):
+            os.mkdir(path)
+
+        try:
+            im.save(f"{path}/{filename}")
+
+            self.proxy.events.fire_event(
+                Event(
+                    name=ConnectionName.ALARM_MONITOR,
+                    event_type=EventType.NEW_CAMERA_IMAGE,
+                    client_id=0,
+                    event_data={
+                        "image_info": image_json,
+                        "data": data,
+                    },
+                )
+            )
+        except Exception as ex:  # noqa: BLE001
+            _LOGGER.error("Error saving image.  Error is %s", ex)
 
     async def send_man_response(self):
         """Send constgructed response."""
@@ -162,7 +244,7 @@ class Webserver:
         """Init."""
         self.proxy = proxy
         self.port = self.proxy.config.WEBSERVER_PORT
-        self.http_server = HttpServer()
+        self.http_server = HttpServer(proxy)
         self.running: bool = True
         self.server_task: asyncio.Task
 
@@ -190,7 +272,7 @@ class Webserver:
             self._webserver(), name="WebServer"
         )
         self.running = True
-        _LOGGER.info("Started HTTP server on port %s", self.port)
+        _LOGGER.info("Started HTTP server on port %s (SSL enabled)", self.port)
 
     async def stop(self):
         """Stop webserver."""

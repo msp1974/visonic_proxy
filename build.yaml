@@ -1,11 +1,11 @@
 # https://developers.home-assistant.io/docs/add-ons/configuration#add-on-dockerfile
 image: "ghcr.io/msp1974/visonic-proxy-{arch}"
 build_from:
-  aarch64: ghcr.io/hassio-addons/base:17.0.2
-  amd64: ghcr.io/hassio-addons/base:17.0.2
-  armv7: ghcr.io/hassio-addons/base:17.0.2
-  armhf: ghcr.io/hassio-addons/base:17.0.2
-  i386: ghcr.io/hassio-addons/base:17.0.2
+  aarch64: ghcr.io/home-assistant/aarch64-base-python:3.13-alpine3.21
+  amd64: ghcr.io/home-assistant/amd64-base-python:3.13-alpine3.21
+  armhf: ghcr.io/home-assistant/armhf-base-python:3.13-alpine3.21
+  armv7: ghcr.io/home-assistant/armv7-base-python:3.13-alpine3.21
+  i386: ghcr.io/home-assistant/i386-base-python:3.13-alpine3.21
 labels:
   org.opencontainers.image.title: "Home Assistant Add-on: Visonic Proxy"
   org.opencontainers.image.description: "Addon to provide proxy for Visonic Alarm"

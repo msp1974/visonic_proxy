@@ -27,6 +27,8 @@ from ssl import PROTOCOL_TLS_SERVER, SSLContext
 import types
 from typing import TYPE_CHECKING
 
+from visonic_proxy.proxy import Proxy
+
 from .utils import (
     HttpHeaders,
     HttpRequest,
@@ -174,7 +176,8 @@ class HttpResponseException(Exception):
 
 
 class HttpServer:
-    def __init__(self) -> None:
+    def __init__(self, proxy: Proxy) -> None:
+        self.proxy = proxy
         self.read_timeout = 2
         self._default_response_headers = HttpHeaders()
         self._static_routes = {}
@@ -219,11 +222,13 @@ class HttpServer:
         if self._server is not None:
             raise RuntimeError("Server already started")
 
-        dir_path = os.path.dirname(os.path.realpath(__file__))
+        dir_path = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+        )
         ssl_context = SSLContext(PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(
-            dir_path + "/certs/cert.pem",
-            dir_path + "/certs/private.key",
+            dir_path + f"/{self.proxy.config.SSL_CERT_PATH}/cert.pem",
+            dir_path + f"/{self.proxy.config.SSL_CERT_PATH}/private.key",
         )
 
         self._server = await asyncio.start_server(

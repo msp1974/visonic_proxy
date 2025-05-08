@@ -165,7 +165,7 @@ class MessageBuilder:
 
         code = bytes.fromhex(code).hex(" ")
         # msg_data = f"{download_code} ff 01 03 08 {zone_data.hex(" ")}"
-        msg = f"b0 {"00" if message_type == MessageType.ADD else "04"} {cmd} {length:02x} {code} {data.hex(" ")} 43"
+        msg = f"b0 {'00' if message_type == MessageType.ADD else '04'} {cmd} {length:02x} {code} {data.hex(' ')} 43"
 
         checksum = self._calculate_message_checksum(bytes.fromhex(msg))
         msg += f" {checksum.hex()}"
@@ -282,7 +282,7 @@ class MessageBuilder:
         msg += f" {length:02x}"
         msg += f" {(6 if no_configs > 1 else 2):02d}"
         msg += " ff 08 0c"
-        msg += f" {(length-5):02x}"  # 2 bytes per config entry
+        msg += f" {(length - 5):02x}"  # 2 bytes per config entry
         msg += f" {params}"
         return msg
 

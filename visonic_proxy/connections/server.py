@@ -8,14 +8,14 @@ import itertools
 import logging
 from socket import AF_INET
 
-from ..const import VIS_ACK, ConnectionName, MsgLogLevel
+from ..const import LOGGER_NAME, VIS_ACK, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
 from ..proxy import Proxy
 from .protocol import ConnectionProtocol
 from .watchdog import Watchdog
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 @dataclass
@@ -60,8 +60,6 @@ class ServerConnection:
         self.watchdog: Watchdog = None
 
         self.clients: dict[str, ClientConnection] = {}
-
-        self.disconnected_mode: bool = True
         self.disable_acks: bool = False
 
         self.unsubscribe_listeners: list[Callable] = []
@@ -323,7 +321,7 @@ class ServerConnection:
 
         while True:
             await asyncio.sleep(5)
-            if self.disconnected_mode:
+            if self.proxy.status.disconnected_mode:
                 clients = self.clients.items()
                 for client_id, client in clients:
                     if (

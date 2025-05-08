@@ -17,7 +17,9 @@ from .helpers import (
 )
 from .refs import (
     EVENTS,
+    SENSOR_TYPES,
     SYSTEM_STATUS,
+    TROUBLES,
     ZONE_TYPES,
     IndexName,
     ZoneBrightness,
@@ -202,6 +204,50 @@ class B0Formatters:
         """Format 51 ask me message into list of hex."""
         return [d.to_bytes(1).hex() for d in data]
 
+    def format_54(self, data: list[str]):
+        """Format 54 trouble mesages into json.
+
+        exapmple: 03 2d 01 00 02 14 00 0c 02
+        0 (03) - device type (zone)
+        1 (2d) - sensor type code
+        2 (01) - zone id (0 based)
+        3 (00) - ?
+        4 (02) - open?
+        5 (14) - ?
+        6 (00) - ?
+        7 (0c) - zone name?
+        8 (02) - open ?
+        """
+        result = []
+        if not data:
+            return result
+
+        for trouble_data in data:
+            trouble = bytes.fromhex(trouble_data)
+            dev_type = get_lookup_value(IndexName, trouble[0])
+            try:
+                trouble_name = TROUBLES[trouble[5]]
+            except IndexError:
+                trouble_name = "Unknown"
+
+            t = {
+                "trouble": trouble_name,
+                "device_type": dev_type,
+                "zone": trouble[2] + 1,
+                "state": trouble[4],
+                "device_model": SENSOR_TYPES[dev_type].get(trouble[1])[0],
+                "zone_name_id": trouble[7],
+                "trouble_code": trouble[5],
+                "device_type_id": trouble[0],
+                "sub_type": trouble[1],
+                "unk3": trouble[3],
+                "unk6": trouble[6],
+                "unk8": trouble[8],
+            }
+            result.append(t)
+
+        return result
+
     def format_58(self, data: list[str]):
         """Format 58 device info.
 
@@ -238,12 +284,27 @@ class B0Formatters:
                 "sub_type": sub_type,
                 "assigned_name_id": name,
                 "partitions": partition_int_to_list_ids(partitions),
+                "other data": {
+                    "bit3": device[3],
+                    "bit5": device[5],
+                    "bit7": device[7],
+                    "bit12": device[12],
+                },
             }
         return result
 
     def format_64(self, data: str) -> str:
         """Format panel SW version."""
         return bytearray.fromhex(data).decode("ascii", errors="ignore")
+
+    def format_66(self, data: list[int]) -> str:
+        """Format siren status."""
+        reasons = ["none", "manual", "alarm", "unknown"]
+        return {
+            "sounding": bool(data[1]),
+            "reason": reasons[min(data[1], 3)],
+            "data": data,
+        }
 
     def format_75(self, data: str) -> str:
         """Format event log.
@@ -541,15 +602,23 @@ class B0Formatters:
 
         return result
 
-    def format_42_36(self, data: list[int]) -> int:
+    def format_42_36(self, data: int) -> int:
         """EPROM version to major.minor format."""
-        byte_int = int.to_bytes(data[0], 2)
+        byte_int = int.to_bytes(data[0] if isinstance(data, list) else data, 2)
         return byte_int[0] + byte_int[1] / 1000
 
-    def format_42_71(self, data: list[int]) -> bool:
+    def format_42_71(self, data: int) -> bool:
         """Format h24 time setting.  Bit 0 is status."""
-        return (data[0] >> 0) & 1 == 1
+        return (data >> 0) & 1 == 1
 
-    def format_42_72(self, data: list[int]) -> bool:
+    def format_42_72(self, data: int) -> bool:
         """US date format setting.  Bit 0 is status."""
-        return (data[0] >> 0) & 1 == 0
+        return (data >> 0) & 1 == 0
+
+    def format_42_229(self, data: list[int]) -> list[str]:
+        """Format 229 - list of ints."""
+        return data
+
+    def format_42_340(self, data: list[str]) -> list[str]:
+        """Format ip addresses from text."""
+        return [".".join(wrap(ip, 3)) for ip in data]

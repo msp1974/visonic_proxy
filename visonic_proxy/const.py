@@ -21,12 +21,15 @@ class Config:
     PROXY_MODE = True
 
     WEBSOCKET_MODE = False  # Use websocket client instead of IP socket client
+    WEBSOCKET_SSL = True  # Enable SSL connection
+    WEBSOCKET_AUTH_KEY = ""  # Use to set Bearer token security on websocket connection
 
     VISONIC_HOST = "52.58.105.181"
     MESSAGE_PORT = 5001
     ALARM_MONITOR_PORT = 5002
     WEBSOCKET_PORT = 8082
     WEBSERVER_PORT = 8443
+    SSL_CERT_PATH = "certs"  # path based from dir of this file
 
     VISONIC_RECONNECT_INTERVAL = 10  # Freq CM will reconnect Visonic after disconnect
     KEEPALIVE_TIMER = 32  # Send Keepalive if no messages in 30 seconds
@@ -59,11 +62,14 @@ class Config:
     FILTER_STD_COMMANDS = ["0b"]  # Std messages from Monitor of these types are dropped
     FILTER_B0_COMMANDS = []  # B0 messages from Monitor of these types are dropped
     NO_WAIT_FOR_ACK_MESSAGES = []  # These messages will not wait for ACKs
+    SEND_KEEPALIVE_ON_VISONIC_DISCONNECT_REQUEST = False
 
     INVALID_MESSAGE_THRESHOLD = (
         2  # Number of times a 06 response is received before marking command invalid
     )
 
+
+LOGGER_NAME = "visonic_proxy"
 
 TEXT_UNKNOWN = "UNKNOWN"
 VIS_ACK = "VIS-ACK"
@@ -73,6 +79,9 @@ ADM_ACK = "*ACK"
 ACK = "ACK"
 DUH = "DUH"
 NAK = "NAK"
+
+STATUS_DO_NOT_REQUEST = ["06", "0f", "17", "35", "39", "3e", "42", "51", "6a"]
+SETTINGS_DO_NOT_REQUEST = [83, 413]
 
 
 class Mode(StrEnum):
@@ -101,7 +110,7 @@ class ConnectionType(StrEnum):
 class ConnectionName(StrEnum):
     """Connection name enum."""
 
-    CM = "ConnMgr"
+    CM = "Proxy"
     ALARM = "Alarm"
     VISONIC = "Visonic"
     ALARM_MONITOR = "HASS"
