@@ -8,4 +8,4 @@ MESSAGE_LOG_LEVEL="$(bashio::config 'message_log_level')"
 LOG_LEVEL="$(bashio::config 'log_level')"
 
 cd /visonic_proxy
-./run.py
+python3 ./run.py

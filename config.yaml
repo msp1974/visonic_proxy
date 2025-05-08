@@ -1,6 +1,6 @@
 name: "Visonic Proxy"
 description: "Visonic Proxy Server for Using Powerlink with Visonic Integration"
-version: "1.0.11"
+version: "1.1.0"
 slug: "visonic_proxy"
 url: https://github.com/msp1974/visonic_proxy
 init: false

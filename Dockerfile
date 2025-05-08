@@ -1,4 +1,4 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.13-alpine3.21
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
@@ -8,15 +8,7 @@ COPY requirements.txt /tmp/
 
 
 RUN \
-    apk add --no-cache \
-        python3-dev=3.12.8-r1 \
-    \
-    && apk add --no-cache \
-        py3-pip=24.3.1-r0 \
-        python3=3.12.8-r1 \
-    \
-    && rm /usr/lib/python*/EXTERNALLY-MANAGED \
-    && python3 -m ensurepip \
+    python3 -m ensurepip \
     && pip3 install -r /tmp/requirements.txt
 
 COPY visonic_proxy /visonic_proxy
