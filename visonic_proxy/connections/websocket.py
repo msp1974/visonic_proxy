@@ -1461,16 +1461,17 @@ class VisonicClient:
                         i["name"] = f"{dev_type.title()} {d + 1}"
 
                         if SENSOR_TYPES.get(dev_type):
+                            # Fix for compaining about set not dict
+                            s = {str(k): v for k, v in SENSOR_TYPES.get(dev_type).items()}
                             try:
-                                if device_type_info := SENSOR_TYPES[dev_type].get(
-                                    i.get("sub_type")
-                                ):
+                                if device_type_info := s.get(str(i["sub_type"])):
                                     i["device_type"] = device_type_info.func.name
                                     i["device_model"] = device_type_info.name
-                                    i["active_tamper"] = (
-                                        tamper_actives[dev_type][d] == 1
-                                    )
-                                    i["tamper_alert"] = tamper_alerts[dev_type][d] == 1
+                                    if tamper_actives.get(dev_type):
+                                        i["active_tamper"] = (
+                                            tamper_actives[dev_type][d] == 1
+                                        )
+                                        i["tamper_alert"] = tamper_alerts[dev_type][d] == 1
                                 else:
                                     _LOGGER.warning(
                                         "Unrecognised device: %s - %s",
@@ -1481,11 +1482,13 @@ class VisonicClient:
                                     i["device_model"] = (
                                         f"{dev_type.title()}-{i['device_type_id']}"
                                     )
-                            except KeyError:
+                            except (KeyError, AttributeError) as ex:
                                 _LOGGER.error(
-                                    "Error processing device: %s - %s",
+                                    "Error processing device: %s - %s - %s - %s",
                                     dev_type,
                                     i.get("sub_type"),
+                                    dev,
+                                    ex
                                 )
                                 i = {}
 
