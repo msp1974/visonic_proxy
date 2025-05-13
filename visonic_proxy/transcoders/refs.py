@@ -477,7 +477,7 @@ SENSOR_TYPES = {
     },
     "sirens": {0x01: ZoneSensorType("SR-740 PG2", SensorType.SOUND)},
     "keypads": {0x05: ZoneSensorType("KP-160 PG2", SensorType.KEYPAD)},
-    "pgm": {0x05},
+    "pgm": {0x01: ZoneSensorType("PGM-1", SensorType.WIRED), 0x05: ZoneSensorType("PGM-5", SensorType.WIRED)},
     "panic_buttons": {0x01: ZoneSensorType("PB-101", SensorType.PANIC_BUTTON)},
     "panel": {0x00: ZoneSensorType("Powermaster", "Panel")},
     "powerlink": {0x00: ZoneSensorType("Powerlink", "Powerlink")},
