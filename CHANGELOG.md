@@ -2,7 +2,7 @@
 
 All notable changes to this fork of `visonic_proxy` are documented in this file.
 
-## [Unreleased]
+## [1.2.0] - 2026-11-27
 
 ### Added
 - Automated CI workflow (`.github/workflows/ci.yml`) running `unittest`, `ruff`, and `mypy` on Python 3.12 and 3.13.
