@@ -300,6 +300,8 @@ class ConnectionManager:
 
             # Set timeout task.  This is a safety net to reconnect Visonic if Monitor connection does not release
             # stealth mode and does not keep requesting.
+            if self.stealth_timeout_task and not self.stealth_timeout_task.done():
+                self.stealth_timeout_task.cancel()
             self.stealth_timeout_task = self.proxy.loop.create_task(
                 self.stealth_mode_timeout()
             )
@@ -427,6 +429,8 @@ class ConnectionManager:
             # Set webserver to reconnect if no clients
             if self.proxy.clients.count(event.name) == 0:
                 self.webserver.set_request_to_connect()
+                self.flow_manager.message_id_mapper.reset_alarm()
+                self.flow_manager.release_alarm_transaction()
 
             # If Alarm disconnects, disconnect Visonic
             # Note this can be a second alarm and Visonic connection
@@ -438,6 +442,9 @@ class ConnectionManager:
 
             if self.proxy.clients.count(event.name) == 0:
                 self.set_disconnected_mode(True)
+                self.flow_manager.message_id_mapper.reset_visonic()
+                if self.flow_manager.active_alarm_owner == ConnectionName.VISONIC:
+                    self.flow_manager.release_alarm_transaction()
 
                 # Set reconnection timed event for Visonic if not in stealth mode
                 if not self.proxy.status.stealth_mode:

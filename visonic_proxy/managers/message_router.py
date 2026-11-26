@@ -138,7 +138,7 @@ class MessageRouter:
                     and message.message.msg_type != ADM_ACK
                 ):
                     await self.forward_message(
-                        ConnectionName.ALARM_MONITOR, message.source_client_id, message
+                        ConnectionName.ALARM_MONITOR, 0, message
                     )
                     return
 
@@ -192,30 +192,31 @@ class MessageRouter:
             self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0
             and message.message.msg_type != ADM_CID
         ):
-            # Set things going to Alarm Monitor that do not need ACKs
-            requires_ack = False
-            if (
-                message.message.message_class == "b0"
-                or message.message.data
-                == bytes.fromhex(ManagedMessages.OUT_OF_DOWNLOAD_MODE)
-                or not self.proxy.config.ALARM_MONITOR_SENDS_ACKS
-            ):
-                requires_ack = False
-
+            # Deliver to Alarm Monitor without blocking the channel for monitor ACKs
             await self.forward_message(
                 ConnectionName.ALARM_MONITOR,
                 0,
                 message,
-                requires_ack=requires_ack,
+                requires_ack=False,
             )
 
-        if not self.proxy.status.disconnected_mode:
+        # Isolate HA/CM-initiated responses from Visonic so PowerManage does not
+        # receive unsolicited responses or lose msg_id sync while the mobile app is active.
+        is_ha_or_cm_owned = (
+            message.origin_owner in (ConnectionName.ALARM_MONITOR, ConnectionName.CM)
+            and message.message.msg_type == VIS_BBA
+        )
+
+        if not self.proxy.status.disconnected_mode and not is_ha_or_cm_owned:
             await self.forward_message(
                 ConnectionName.VISONIC, message.source_client_id, message
             )
 
-        # Does CM send an ACK?
-        if self.proxy.status.disconnected_mode and message.message.msg_type == VIS_BBA:
+        # Does CM send an ACK? Required when Visonic is disconnected or when
+        # the response was isolated from Visonic for HA/CM.
+        if (
+            self.proxy.status.disconnected_mode or is_ha_or_cm_owned
+        ) and message.message.msg_type == VIS_BBA:
             await self.command_manager.send_ack_message(message)
 
         # Process information from certain messages
@@ -339,31 +340,35 @@ class MessageRouter:
 
         If desintation client id is 0, CM will forward to first connection with that name
         """
-        message.destination = destination
-        message.destination_client_id = destination_client_id
+        routed = RoutableMessage(
+            source=message.source,
+            source_client_id=message.source_client_id,
+            destination=destination,
+            destination_client_id=destination_client_id,
+            message=message.message,
+            origin_owner=message.origin_owner,
+        )
 
-        # Set some overides here for known messages that do not get ACKd
+        # Set some overrides here for known messages that do not get ACKd
         if (
-            message.destination
-            == (
-                ConnectionName.ALARM_MONITOR
-                and not self.proxy.config.ALARM_MONITOR_SENDS_ACKS
-            )
-            or message.message.data.hex(" ")
+            routed.destination == ConnectionName.ALARM_MONITOR
+            and not self.proxy.config.ALARM_MONITOR_SENDS_ACKS
+        ) or (
+            routed.message.data.hex(" ")
             in self.proxy.config.NO_WAIT_FOR_ACK_MESSAGES
         ):
             requires_ack = False
 
         _LOGGER.debug(
             "Forwading Message: %s -> %s %s %s - %s",
-            message.source,
+            routed.source,
             destination,
-            message.source_client_id,
-            message.message.msg_id,
-            message.message.data.hex(" "),
+            routed.source_client_id,
+            routed.message.msg_id,
+            routed.message.data.hex(" "),
         )
 
         await self.cb_send_message(
-            message,
+            routed,
             requires_ack=requires_ack,
         )

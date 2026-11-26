@@ -3,7 +3,7 @@
 from collections.abc import Callable
 import logging
 
-from events import ALL_CLIENTS, Event, EventType
+from ..events import ALL_CLIENTS, Event, EventType
 
 from ..const import ConnectionName, Mode, MsgLogLevel
 from ..message import RoutableMessage

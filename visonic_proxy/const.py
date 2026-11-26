@@ -55,6 +55,12 @@ class Config:
     SEND_E0_MESSAGES = True  # Send E0 status messages to Alarm Montitor clients
 
     MATCH_ACK_MSG_ID = False  # Match msg id for all ACKs - experimental
+    TRANSACTION_WINDOW_SECONDS = (
+        2.0  # Window to hold channel ownership for active request/response
+    )
+    ENABLE_MSG_ID_TRANSLATION = (
+        True  # Isolate Alarm and Visonic msg_id sequences to prevent desync
+    )
 
     STATUS_COMMAND = "e0"  # Message type for status messages
     ACTION_COMMAND = "e1"  # Message type for action commands

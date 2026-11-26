@@ -1,6 +1,6 @@
 """Message."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .const import ConnectionName
 from .transcoders.builder import NonPowerLink31Message
@@ -16,6 +16,7 @@ class RoutableMessage:
     destination: ConnectionName
     destination_client_id: str
     message: PowerLink31Message | NonPowerLink31Message
+    origin_owner: ConnectionName | None = field(default=None, kw_only=True)
 
 
 @dataclass

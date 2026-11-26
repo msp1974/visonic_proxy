@@ -42,11 +42,10 @@ class MyHandler:
         self.proxy = proxy
         self.request_connect = request_connect
 
-    async def forward_request(self, request: HttpRequest) -> requests.Response:
-        """Forward request and return response."""
-        try:
-            s = requests.Session()
-            return s.post(
+    def _sync_forward_request(self, request: HttpRequest) -> requests.Response:
+        """Synchronously forward request (executed in worker thread)."""
+        with requests.Session() as session:
+            return session.post(
                 f"https://{self.proxy.config.VISONIC_HOST}:{self.proxy.config.WEBSERVER_PORT}{request.path}",
                 params=request.query_params,
                 headers=request.headers,
@@ -54,6 +53,11 @@ class MyHandler:
                 verify=False,
                 timeout=2,
             )
+
+    async def forward_request(self, request: HttpRequest) -> requests.Response:
+        """Forward request without blocking the asyncio event loop."""
+        try:
+            return await asyncio.to_thread(self._sync_forward_request, request)
         except (TimeoutError, requests.exceptions.ReadTimeout, OSError) as ex:
             _LOGGER.warning(
                 "HTTP connection timed out error sending to Visonic. %s", ex
@@ -68,11 +72,14 @@ class MyHandler:
         if request.path == "/scripts/update.php":
             if self.proxy.config.PROXY_MODE:
                 if res := await self.forward_request(request):
+                    has_connect_cmd = False
+                    response: dict = {}
                     try:
-                        response: dict = res.json()
+                        response = res.json()
                         if cmds := response.get("cmds"):
                             for command in cmds:
                                 if command.get("name") == "connect":
+                                    has_connect_cmd = True
                                     # fire event
                                     _LOGGER.info(
                                         "Received web connection request",
@@ -83,41 +90,59 @@ class MyHandler:
                                         EventType.REQUEST_CONNECT,
                                     )
                                     self.proxy.events.fire_event(event)
-                    except requests.exceptions.JSONDecodeError:
+                    except (requests.exceptions.JSONDecodeError, ValueError):
                         _LOGGER.info("cannot decode response")
                         response = {}
 
                     if Connect.request_connect:
-                        resp = {}
-                        resp["cmds"] = [
-                            {
-                                "name": "connect",
-                                "params": {"port": self.proxy.config.MESSAGE_PORT},
-                            }
+                        resp_dict = {
+                            "cmds": [
+                                {
+                                    "name": "connect",
+                                    "params": {"port": self.proxy.config.MESSAGE_PORT},
+                                }
+                            ],
+                            "ka_time": 10,
+                            "version": 3,
+                        }
+                        resp = bytes(f"{json.dumps(resp_dict)}\n", "ascii")
+                    elif has_connect_cmd and isinstance(response, dict):
+                        # Alarm is already connected to proxy; strip 'connect' command so
+                        # the panel does not open a duplicate TCP connection.
+                        filtered_cmds = [
+                            cmd
+                            for cmd in response.get("cmds", [])
+                            if cmd.get("name") != "connect"
                         ]
-                        resp.update({"ka_time": 10, "version": 3})
-                        resp = bytes(f"{json.dumps(resp)}\n", "ascii")
+                        if filtered_cmds:
+                            response["cmds"] = filtered_cmds
+                        else:
+                            response.pop("cmds", None)
+                        resp = bytes(f"{json.dumps(response)}\n", "ascii")
                     else:
                         resp = res.content
 
                     _LOGGER.info(
                         "\x1b[1;36mVisonic HTTPS ->\x1b[0m %s",
-                        resp.decode().replace("\n", ""),
+                        resp.decode(errors="replace").replace("\n", ""),
                         extra=MsgLogLevel.L5,
                     )
 
                     headers = HttpHeaders()
+                    has_content_length = False
                     for k, v in res.headers.items():
-                        if k == "Content-Length":
-                            # Adjust content length if we have added connect command
+                        if k.lower() == "content-length":
+                            # Adjust content length if we modified the payload
                             headers.add(k, len(resp))
+                            has_content_length = True
                         else:
                             headers.add(k, v)
+                    if not has_content_length:
+                        headers.add("Content-Length", len(resp))
                     return HttpResponse(200, headers, resp)
-                await self.send_man_response()
+                return await self.send_man_response()
 
-            else:
-                await self.send_man_response()
+            return await self.send_man_response()
         elif self.proxy.config.PROXY_MODE:
             if res := await self.forward_request(request):
                 response = res.content

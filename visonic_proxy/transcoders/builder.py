@@ -287,7 +287,13 @@ class MessageBuilder:
         return msg
 
     def build_powerlink31_message(
-        self, msg_id: int, message: bytes, is_ack: bool = False
+        self,
+        msg_id: int,
+        message: bytes,
+        is_ack: bool = False,
+        account_id: str | None = None,
+        panel_id: str | None = None,
+        message_class: str | None = None,
     ) -> PowerLink31Message:
         r"""Build initial part of B0 message.
 
@@ -307,20 +313,24 @@ class MessageBuilder:
         ACCT_NO - message to Alarm is 0, from alarm is account no.
 
         """
-        message = message.hex(" ")
+        message_hex = message.hex(" ")
+        effective_account_id = (
+            account_id if account_id is not None else self.proxy.account_id
+        )
+        effective_panel_id = panel_id if panel_id is not None else self.proxy.panel_id
 
         msg_initiator = "\n"
         msg_type = "VIS-ACK" if is_ack else "VIS-BBA"
 
         msg_start = (
-            f'"{msg_type}"{msg_id:04}L{self.proxy.account_id}#{self.proxy.panel_id}['
+            f'"{msg_type}"{msg_id:04}L{effective_account_id}#{effective_panel_id}['
         )
         msg_end = "]"
         msg_terminator = "\r"
 
         base_msg = bytearray()
         base_msg.extend(map(ord, msg_start))
-        base_msg.extend(bytearray.fromhex(message))
+        base_msg.extend(bytearray.fromhex(message_hex))
         base_msg.extend(map(ord, msg_end))
 
         # generate message prefix
@@ -335,14 +345,21 @@ class MessageBuilder:
         msg.extend(base_msg)
         msg.extend(map(ord, msg_terminator))
 
+        raw_payload = bytearray.fromhex(message_hex)
+        effective_message_class = (
+            message_class
+            if message_class is not None
+            else (raw_payload[1:2].hex() if len(raw_payload) > 1 else "")
+        )
+
         return PowerLink31Message(
             crc16=crc16,
             length=msg_length,
             msg_type=msg_type,
             msg_id=msg_id,
-            account_id=self.proxy.account_id,
-            panel_id=self.proxy.panel_id,
-            message_class="",
-            data=bytearray.fromhex(message),
+            account_id=effective_account_id,
+            panel_id=effective_panel_id,
+            message_class=effective_message_class,
+            data=raw_payload,
             raw_data=msg,
         )

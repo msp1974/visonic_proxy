@@ -39,7 +39,7 @@ class DataStore:
     def _rebuild_pages(self, paged_data: dict):
         dict_result = {}
         list_result = []
-        for page_data in paged_data.values():
+        for _, page_data in sorted(paged_data.items()):
             if isinstance(page_data, dict):
                 dict_result = self._combine_dict(dict_result, page_data)
             elif isinstance(page_data, list):
@@ -133,7 +133,7 @@ class DataStore:
                 page = (
                     1
                     if not self._data[STATUS][command_name]["pages"]
-                    else self._data[STATUS][command_name]["pages"].keys()[-1] + 1
+                    else max(self._data[STATUS][command_name]["pages"].keys()) + 1
                 )
 
             self._data[STATUS][command_name]["pages"][page] = data
@@ -181,7 +181,7 @@ class DataStore:
                 page = (
                     1
                     if not self._data[key][setting_name]["pages"]
-                    else self._data[key][setting_name]["pages"].keys()[-1] + 1
+                    else max(self._data[key][setting_name]["pages"].keys()) + 1
                 )
 
             if page == 1:

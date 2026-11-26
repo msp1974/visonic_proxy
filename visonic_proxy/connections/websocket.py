@@ -714,21 +714,23 @@ class VisonicClient:
                 start = dt.datetime.now()
                 _LOGGER.info("Starting Visonic Client Initialisation")
                 self.request_in_progress = True
-                await self.send_message_and_wait(VPCommand("stealth", True))
-                await self.download_statuses(INIT_STATUSES)
-                await self.download_settings(INIT_SETTINGS)
+                try:
+                    await self.send_message_and_wait(VPCommand("stealth", True))
+                    await self.download_statuses(INIT_STATUSES)
+                    await self.download_settings(INIT_SETTINGS)
 
-                await self.wait_for_empty_queue()
-                await self.download_eprom_settings(list(EPROMSetting))
-                await self.send_message_and_wait(VPCommand("stealth", False))
-                self.request_in_progress = False
-                self.is_init = True
-                _LOGGER.info(
-                    "Completed Visonic Client Initialisation in %ss",
-                    (dt.datetime.now() - start).total_seconds(),
-                )
-                await self.schedule_status_update(1, False)
-                break
+                    await self.wait_for_empty_queue()
+                    await self.download_eprom_settings(list(EPROMSetting))
+                    await self.send_message_and_wait(VPCommand("stealth", False))
+                    self.is_init = True
+                    _LOGGER.info(
+                        "Completed Visonic Client Initialisation in %ss",
+                        (dt.datetime.now() - start).total_seconds(),
+                    )
+                    await self.schedule_status_update(1, False)
+                    break
+                finally:
+                    self.request_in_progress = False
 
             await asyncio.sleep(1)
 
@@ -766,19 +768,16 @@ class VisonicClient:
                     dec = self.message_decoder.decode(data)
 
                     if dec.cmd == B0CommandName.INVALID_COMMAND:
-                        # If waiting multiple - do not know which is invalid.
-                        # Therefore only register invalid if sure which is invalid
-                        # ie list only has 1 entry
-                        if len(self.waiting_for) == 1:
-                            self.registered_invalid_command(self.waiting_for[0])
+                        # Only clear/register if VisonicClient actually has a pending request
+                        if self.send_lock.locked():
+                            if len(self.waiting_for) == 1:
+                                self.registered_invalid_command(self.waiting_for[0])
 
-                        # clear wiating for.
-                        self.waiting_for = []
+                            # clear waiting for.
+                            self.waiting_for = []
 
                     else:
-                        self.proxy.loop.create_task(
-                            self.process_message(message_class, dec)
-                        )
+                        await self.process_message(message_class, dec)
                 except Exception as ex:  # noqa: BLE001
                     _LOGGER.error(
                         "Unknown websocket error.  Error is: %s\n%s",
@@ -810,15 +809,13 @@ class VisonicClient:
                 elif self.stealth_mode.is_set():
                     self.stealth_mode.clear()
 
-                self.proxy.loop.create_task(
-                    self.process_message(message_class, cm_status)
-                )
+                await self.process_message(message_class, cm_status)
 
             else:
                 # Process std message and store data.
                 dec = STDMessageDecoder().decode(data)
                 self.register_received_message(dec.cmd)
-                self.proxy.loop.create_task(self.process_message(MessageClass.STD, dec))
+                await self.process_message(MessageClass.STD, dec)
 
     def registered_invalid_command(self, command: str):
         """Register a command as invalid after receiving a 06 reponse to a B0 message."""
@@ -918,8 +915,13 @@ class VisonicClient:
                             )
                         )
 
-            # Response to a 51 message
-            if dec.cmd in [B0CommandName.ASK_ME, B0CommandName.ASK_ME2] and dec.data:
+            # Response to a 51 message only when Visonic/PowerManage is disconnected;
+            # otherwise PowerManage responds and we passively observe the panel replies.
+            if (
+                dec.cmd in [B0CommandName.ASK_ME, B0CommandName.ASK_ME2]
+                and dec.data
+                and self.cm_status.disconnected_mode
+            ):
                 await asyncio.sleep(0.2)
                 for cmd in dec.data:
                     msg = self.message_builder.message_preprocessor(
@@ -1009,9 +1011,8 @@ class VisonicClient:
         self, data: bytes | VPCommand, wait_for: list[str] | None = None
     ):
         """Send message and wait for responses."""
-        await self.send_lock.acquire()
-        await self._send_message_and_wait(data, wait_for)
-        self.send_lock.release()
+        async with self.send_lock:
+            await self._send_message_and_wait(data, wait_for)
 
     async def send_queue_processor(self):
         """Process receive queue."""
@@ -1019,11 +1020,8 @@ class VisonicClient:
             # Wait for rts
             await self.rts.wait()
             _, _, msg, wait_for = await self.send_queue.get()
-            await self.send_lock.acquire()
-
-            await self._send_message_and_wait(msg, wait_for)
-
-            self.send_lock.release()
+            async with self.send_lock:
+                await self._send_message_and_wait(msg, wait_for)
 
     async def _send_message_and_wait(
         self, msg: bytes | VPCommand, wait_for: list[str] | None = None
@@ -1321,10 +1319,12 @@ class VisonicClient:
 
         if self.is_init:
             self.request_in_progress = True
-            result = await self.get_panel_info(
-                json_encode=False, refresh_key_data=refresh_key_data
-            )
-            self.request_in_progress = False
+            try:
+                result = await self.get_panel_info(
+                    json_encode=False, refresh_key_data=refresh_key_data
+                )
+            finally:
+                self.request_in_progress = False
             output.update(result)
         end = dt.datetime.now()
 
@@ -1630,7 +1630,7 @@ class VisonicClient:
             else:
                 partition = int(partitions)
 
-            if CMStatus.download_mode:
+            if self.cm_status.download_mode:
                 msg = self.message_builder.message_preprocessor(
                     bytes.fromhex(ManagedMessages.EXIT_DOWNLOAD_MODE)
                 )
@@ -1647,23 +1647,27 @@ class VisonicClient:
 
         self.request_in_progress = True
         success = False
-        zone_data = bits_to_le_bytes(zones, 64)
-        download_code = await self.get_setting(Command35Settings.DOWNLOAD_CODE)
+        try:
+            zone_data = bits_to_le_bytes(zones, 64)
+            download_code = await self.get_setting(Command35Settings.DOWNLOAD_CODE)
 
-        data = bytes.fromhex(f"00 ff 01 03 08 {zone_data.hex(' ')}")
-        message = self.message_builder.build_b0_add_remove_message(
-            MessageType.ADD if enable else MessageType.REMOVE, "19", download_code, data
-        )
-
-        if message:
-            await self.send_message_and_wait(message.data, [ACK])
-            msg = self.message_builder.message_preprocessor(
-                bytes.fromhex("b0 17 19 24")
+            data = bytes.fromhex(f"00 ff 01 03 08 {zone_data.hex(' ')}")
+            message = self.message_builder.build_b0_add_remove_message(
+                MessageType.ADD if enable else MessageType.REMOVE,
+                "19",
+                download_code,
+                data,
             )
-            await self.send_message_and_wait(msg.data, ["19", "24"])
-            success = True
 
-        self.request_in_progress = False
+            if message:
+                await self.send_message_and_wait(message.data, [ACK])
+                msg = self.message_builder.message_preprocessor(
+                    bytes.fromhex("b0 17 19 24")
+                )
+                await self.send_message_and_wait(msg.data, ["19", "24"])
+                success = True
+        finally:
+            self.request_in_progress = False
         return success
 
     async def set_pgm(

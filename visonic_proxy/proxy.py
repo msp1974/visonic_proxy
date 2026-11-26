@@ -111,6 +111,8 @@ class Clients:
         ):
             _LOGGER.error(
                 "%s client with id %s is already registered",
+                name,
+                client_id,
             )
             return
 
@@ -169,11 +171,19 @@ class Clients:
             return []
 
     def get_first_client(self, name: ConnectionName) -> ConnectionInfo | None:
-        """Get connection info for first client in connection."""
+        """Get connection info for first connected client in connection."""
         try:
-            if client_ids := list(self._clients[name].keys()):
-                first_client = min(client_ids)
-                return self._clients[name][first_client]
+            clients = self._clients[name]
+            if not clients:
+                return None
+            connected_ids = [
+                cid
+                for cid, info in clients.items()
+                if info.status == ConnectionStatus.CONNECTED
+            ]
+            if connected_ids:
+                return clients[min(connected_ids)]
+            return clients[min(clients.keys())]
         except KeyError:
             return None
 

@@ -2,11 +2,13 @@
 
 import asyncio
 from collections.abc import Callable
+import contextlib
 from dataclasses import dataclass
 import datetime as dt
 import itertools
 import logging
 import re
+import time
 import traceback
 
 from ..const import (
@@ -24,6 +26,7 @@ from ..message import QueuedMessage, QueuedReceivedMessage, RoutableMessage
 from ..proxy import Proxy
 from ..transcoders.builder import MessageBuilder, NonPowerLink31Message
 from ..transcoders.pl31_decoder import PowerLink31Message, PowerLink31MessageDecoder
+from .message_id_mapper import MessageIdMapper
 from .message_router import MessageRouter
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,13 +91,18 @@ class FlowManager:
         self.sender_queue = asyncio.PriorityQueue()
         self.rts = asyncio.Event()
         self.pending_has_connected = asyncio.Event()
+        self.transaction_idle = asyncio.Event()
+        self.transaction_idle.set()
 
         self.message_receiver_task: asyncio.Task
         self.message_sender_task: asyncio.Task
 
         self.message_router = MessageRouter(self.proxy)
+        self.message_id_mapper = MessageIdMapper()
 
         self.ack_awaiter: WaitingAck = None
+        self.active_alarm_owner: ConnectionName | None = None
+        self.active_alarm_owner_until: float = 0.0
 
         self._unsubscribe_listeners: list[Callable] = []
 
@@ -204,15 +212,13 @@ class FlowManager:
                 split_after = ["5d 0d"]
                 rx = re.compile(rf'(?<=({"|".join(split_after)}))[^\b]')
                 messages = [x for x in rx.split(data.hex(" ")) if x not in split_after]
-                for message in messages:
-                    # Decode PL31 message wrapper
-                    # Decode powerlink 31 wrapper
-                    decoded_messages = [
-                        PowerLink31MessageDecoder().decode_powerlink31_message(
-                            bytes.fromhex(message)
-                        )
-                        for message in messages
-                    ]
+                decoded_messages = [
+                    PowerLink31MessageDecoder().decode_powerlink31_message(
+                        bytes.fromhex(msg_hex)
+                    )
+                    for msg_hex in messages
+                    if msg_hex.strip()
+                ]
 
             # Now log and raise events for each message
             destination = None
@@ -245,6 +251,7 @@ class FlowManager:
                             self.proxy.message_tracker.last_message_timestamp = (
                                 timestamp
                             )
+                            self.message_id_mapper.observe_alarm_msg_id(message_no)
                             _LOGGER.debug(
                                 "Tracking Info: msg_id: %s, timestamp: %s",
                                 message_no,
@@ -260,6 +267,21 @@ class FlowManager:
                         _LOGGER.warning("Powerlink: %s", decoded_message)
                         continue
 
+                elif source == ConnectionName.VISONIC:
+                    if decoded_message.msg_id != 0 and decoded_message.msg_type in [
+                        VIS_BBA,
+                        VIS_ACK,
+                    ]:
+                        self.message_id_mapper.observe_visonic_msg_id(
+                            decoded_message.msg_id
+                        )
+                    if (
+                        decoded_message.msg_type in [VIS_ACK, ADM_ACK, NAK]
+                        and self.get_active_alarm_owner() == ConnectionName.VISONIC
+                    ):
+                        # Visonic acknowledged the alarm response; release turn for HA
+                        self.release_alarm_transaction()
+
                 # EXPERIMENTAL - If waiting ack from a connection and get a message, release ACK wait
                 if (
                     self.ack_awaiter
@@ -272,6 +294,7 @@ class FlowManager:
                         source,
                         extra=MsgLogLevel.L5,
                     )
+                    self.ack_awaiter = None
                     self.release_send_queue()
 
                 # If waiting ack and receive ack, set RTS
@@ -357,6 +380,12 @@ class FlowManager:
                     )
                 )
 
+                origin_owner = (
+                    self.get_active_alarm_owner()
+                    if source == ConnectionName.ALARM
+                    else None
+                )
+
                 # Route message
                 await self.message_router.route_message(
                     RoutableMessage(
@@ -365,6 +394,7 @@ class FlowManager:
                         destination=destination,
                         destination_client_id=destination_client_id,
                         message=decoded_message,
+                        origin_owner=origin_owner,
                     )
                 )
 
@@ -439,6 +469,26 @@ class FlowManager:
                 # just continuie.
                 await self.pending_has_connected.wait()
 
+                # Avoid interleaving HA requests into an active Visonic/mobile app transaction
+                if (
+                    message.source == ConnectionName.ALARM_MONITOR
+                    and message.destination == ConnectionName.ALARM
+                    and message.message.msg_type == VIS_BBA
+                    and self.get_active_alarm_owner() == ConnectionName.VISONIC
+                ):
+                    remaining = self.active_alarm_owner_until - time.monotonic()
+                    if remaining > 0:
+                        with contextlib.suppress(TimeoutError):
+                            await asyncio.wait_for(
+                                self.transaction_idle.wait(), timeout=remaining
+                            )
+
+                if (
+                    message.destination == ConnectionName.ALARM
+                    and message.message.msg_type == VIS_BBA
+                ):
+                    self.claim_alarm_transaction(message.source)
+
                 msg_id = await self._send_message(message)
 
                 # Send message to listeners
@@ -496,7 +546,14 @@ class FlowManager:
                         and queued_message.destination != ConnectionName.ALARM_MONITOR
                         and queued_message.message.msg_type == VIS_BBA
                     ):
-                        msg_id = self.proxy.message_tracker.get_next_message_id()
+                        if (
+                            self.proxy.config.ENABLE_MSG_ID_TRANSLATION
+                            and queued_message.destination == ConnectionName.ALARM
+                        ):
+                            msg_id = self.message_id_mapper.next_alarm_msg_id()
+                            self.proxy.message_tracker.last_message_no = msg_id
+                        else:
+                            msg_id = self.proxy.message_tracker.get_next_message_id()
                     else:
                         # msgid will be populated if this is an ACK from CM
                         msg_id = queued_message.message.msg_id
@@ -511,6 +568,59 @@ class FlowManager:
                         queued_message.message.data,
                         queued_message.message.msg_type == VIS_ACK,
                     )
+                elif (
+                    isinstance(queued_message.message, PowerLink31Message)
+                    and self.proxy.config.ENABLE_MSG_ID_TRANSLATION
+                    and queued_message.message.msg_type in [VIS_BBA, VIS_ACK]
+                ):
+                    pl_msg = queued_message.message
+                    translated_id: int | None = None
+
+                    if (
+                        queued_message.source == ConnectionName.VISONIC
+                        and queued_message.destination == ConnectionName.ALARM
+                    ):
+                        if pl_msg.msg_type == VIS_BBA:
+                            translated_id = (
+                                self.message_id_mapper.map_visonic_to_alarm(
+                                    pl_msg.msg_id
+                                )
+                            )
+                            self.proxy.message_tracker.last_message_no = translated_id
+                        elif pl_msg.msg_type == VIS_ACK:
+                            translated_id = (
+                                self.message_id_mapper.resolve_visonic_ack_for_alarm(
+                                    pl_msg.msg_id
+                                )
+                            )
+                    elif (
+                        queued_message.source == ConnectionName.ALARM
+                        and queued_message.destination == ConnectionName.VISONIC
+                    ):
+                        if pl_msg.msg_type == VIS_BBA:
+                            translated_id = (
+                                self.message_id_mapper.map_alarm_to_visonic(
+                                    pl_msg.msg_id
+                                )
+                            )
+                        elif pl_msg.msg_type == VIS_ACK:
+                            translated_id = (
+                                self.message_id_mapper.resolve_alarm_ack_for_visonic(
+                                    pl_msg.msg_id
+                                )
+                            )
+
+                    if translated_id is not None and translated_id != pl_msg.msg_id:
+                        queued_message.message = MessageBuilder(
+                            self.proxy
+                        ).build_powerlink31_message(
+                            translated_id,
+                            pl_msg.data,
+                            is_ack=pl_msg.msg_type == VIS_ACK,
+                            account_id=pl_msg.account_id,
+                            panel_id=pl_msg.panel_id,
+                            message_class=pl_msg.message_class,
+                        )
 
                 await self.cb_send_message(queued_message)
             except Exception as ex:  # noqa: BLE001
@@ -556,6 +666,28 @@ class FlowManager:
         await self.rts.wait()
         timeout.cancel()
 
+    def get_active_alarm_owner(self) -> ConnectionName | None:
+        """Return current active alarm transaction owner if window has not expired."""
+        if self.active_alarm_owner and time.monotonic() <= self.active_alarm_owner_until:
+            return self.active_alarm_owner
+        if self.active_alarm_owner is not None:
+            self.release_alarm_transaction()
+        return None
+
+    def claim_alarm_transaction(self, owner: ConnectionName):
+        """Claim alarm channel ownership for the configured transaction window."""
+        self.active_alarm_owner = owner
+        self.active_alarm_owner_until = (
+            time.monotonic() + self.proxy.config.TRANSACTION_WINDOW_SECONDS
+        )
+        self.transaction_idle.clear()
+
+    def release_alarm_transaction(self):
+        """Release alarm channel ownership so queued clients can proceed."""
+        self.active_alarm_owner = None
+        self.active_alarm_owner_until = 0.0
+        self.transaction_idle.set()
+
     async def ack_timeout(self, event: Event):
         """ACK timeout callback."""
 
@@ -565,4 +697,5 @@ class FlowManager:
             event.event_data.get("msg_id", "UNKOWN"),
             extra=MsgLogLevel.L3,
         )
+        self.ack_awaiter = None
         self.release_send_queue()
