@@ -24,4 +24,4 @@ CMD [ "/run.sh" ]
 LABEL \
   io.hass.version="1.1.2" \
   io.hass.type="addon" \
-  io.hass.arch="aarch64|amd64|armv7"
+  io.hass.arch="aarch64|amd64"

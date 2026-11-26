@@ -5,6 +5,7 @@ import logging
 
 from ..helpers.crc16 import Crc16Arc
 from ..proxy import Proxy
+from .helpers import calculate_message_checksum
 from .pl31_decoder import PowerLink31Message
 from .refs import VIS_ACK, VIS_BBA, ManagedMessages, MessageType
 
@@ -36,15 +37,9 @@ class MessageBuilder:
         """Initialise."""
         self.proxy = proxy
 
-    def _calculate_message_checksum(self, msg: bytearray) -> bytes:
-        """Calculate CRC Checksum."""
-        checksum = 0
-        for char in msg[0 : len(msg)]:
-            checksum += char
-        checksum = 0xFF - (checksum % 0xFF)
-        if checksum == 0xFF:
-            checksum = 0x00
-        return checksum.to_bytes(1, "big")
+    def _calculate_message_checksum(self, msg: bytearray | bytes) -> bytes:
+        """Calculate message checksum using shared transcoder helper."""
+        return calculate_message_checksum(msg)
 
     def build_ack_message(
         self, msg_id: int = 0, pl_ack: bool = True

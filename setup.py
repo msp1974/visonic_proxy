@@ -33,9 +33,14 @@ setuptools.setup(
     description="A Proxy Manager for Visonic PowerLink 3 written in Python 3",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/msp1974/visonic_proxy",
+    url="https://github.com/ShaneGooseman/visonic_proxy",
     packages=setuptools.find_packages(),
-    install_requires=["requests"],
+    install_requires=[
+        "requests>=2.32.3",
+        "websockets>=14.1",
+        "pyopenssl>=25.0.0",
+        "pillow>=11.1.0",
+    ],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

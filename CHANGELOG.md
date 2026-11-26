@@ -12,8 +12,11 @@ All notable changes to this fork of `visonic_proxy` are documented in this file.
 - Dedicated `visonic_proxy/connections/visonic_client.py` module extracted from `websocket.py` (with backwards-compatible re-exports).
 
 ### Changed
+- Replaced `asyncio.sleep` polling loops in `VisonicClient.wait_for_responses` and `wait_for_empty_queue` with `asyncio.Event` + `asyncio.wait_for` and `asyncio.Queue.join()`.
+- Deduplicated checksum calculation in `MessageBuilder`, reused a single `B0Formatters` instance in `B0Decoder`, and removed unused `visonic_proxy/connections/httpserver/make_certs.py`.
+- Synchronized `setup.py` dependencies/URL with `requirements.txt` and updated `websocket_commands.md` with valid JSON, `siren`/`use_42` documentation, and authentication notes.
 - `run.sh` now exports all `config.yaml` options and launches Python via `exec`.
-- `config.yaml` uses `password?` for `websocket_auth_key`, removes deprecated `legacy: true`, and limits architectures to `aarch64`, `amd64`, and `armv7` (aligned with `build.yaml` and `Dockerfile`).
+- `config.yaml` uses `password?` for `websocket_auth_key`, removes deprecated `legacy: true`, and targets 64-bit architectures `aarch64` and `amd64` (aligned with `build.yaml` and `Dockerfile`).
 - `Dockerfile` label `io.hass.version` aligned to `1.1.2`.
 - `helpers/env.py` loads `/data/options.json` with typed coercion (`bool`, `int`, `float`, `LOG_LEVEL`) without mutating `Config` class attributes, and redacts sensitive keys in logs.
 - `Watchdog` and `ServerConnection` keepalive timers migrated to `time.monotonic()`.

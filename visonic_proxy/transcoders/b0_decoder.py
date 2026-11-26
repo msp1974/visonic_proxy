@@ -60,6 +60,10 @@ class B0Message:
 class B0Decoder:
     """B0 Message Decoder."""
 
+    def __init__(self):
+        """Initialise decoder with a reusable formatter instance."""
+        self._formatters = B0Formatters()
+
     def decode(self, data: bytes) -> B0Message:
         """Decode b0 message."""
         # Decode structure
@@ -92,7 +96,7 @@ class B0Decoder:
                         isinstance(le, list) for le in decoded_format
                     ):
                         for data_item in decoded_format:
-                            format_result = getattr(B0Formatters(), formatter)(
+                            format_result = getattr(self._formatters, formatter)(
                                 data_item
                             )
                             if (
@@ -102,7 +106,7 @@ class B0Decoder:
                                 format_result = format_result[0]
                             formatted.append(format_result)
                     else:
-                        format_result = getattr(B0Formatters(), formatter)(
+                        format_result = getattr(self._formatters, formatter)(
                             decoded_format
                         )
                         if isinstance(format_result, list) and len(format_result) == 1:
@@ -132,11 +136,11 @@ class B0Decoder:
 
                 # Now translate data
                 specific_formatter_func = f"format_{struct.cmd}"
-                if hasattr(B0Formatters(), specific_formatter_func):
+                if hasattr(self._formatters, specific_formatter_func):
                     formatted_data = {}
                     for idx, d in decoded_format.items():
                         formatted_data[idx] = getattr(
-                            B0Formatters(), specific_formatter_func
+                            self._formatters, specific_formatter_func
                         )(d)
                 else:
                     formatted_data = decoded_format
@@ -156,8 +160,8 @@ class B0Decoder:
                 )
                 specific_formatter_func = f"format_{struct.cmd}"
                 formatted_data = (
-                    getattr(B0Formatters(), specific_formatter_func)(decoded_format)
-                    if hasattr(B0Formatters(), specific_formatter_func)
+                    getattr(self._formatters, specific_formatter_func)(decoded_format)
+                    if hasattr(self._formatters, specific_formatter_func)
                     else decoded_format
                 )
                 result = B0Message(
@@ -436,7 +440,7 @@ class B0Decoder:
             else:
                 func = f"format_{cmd}"
 
-            if hasattr(B0Formatters(), func):
+            if hasattr(self._formatters, func):
                 return func
         return None
 
@@ -458,8 +462,8 @@ class B0Decoder:
             else:
                 func = f"format_{cmd}"
             try:
-                if hasattr(B0Formatters(), func):
-                    return getattr(B0Formatters(), func)(data)
+                if hasattr(self._formatters, func):
+                    return getattr(self._formatters, func)(data)
             except (ValueError, TypeError):
                 return None
         return data

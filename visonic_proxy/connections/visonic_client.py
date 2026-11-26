@@ -141,6 +141,9 @@ class VisonicClient:
 
         self.send_lock = asyncio.Lock()
         self.rts = asyncio.Event()
+        self.rts.set()
+        self._responses_complete = asyncio.Event()
+        self._responses_complete.set()
         self.download_mode = asyncio.Event()
         self.stealth_mode = asyncio.Event()
         self.send_queue = asyncio.PriorityQueue()
@@ -230,6 +233,8 @@ class VisonicClient:
                 self.waiting_for.remove(cmd)
         except ValueError:
             pass
+        if not self.waiting_for:
+            self._responses_complete.set()
 
     async def receive_message(self, data: bytes):
         """Process received message."""
@@ -253,6 +258,7 @@ class VisonicClient:
 
                             # clear waiting for.
                             self.waiting_for = []
+                            self._responses_complete.set()
 
                     else:
                         await self.process_message(message_class, dec)
@@ -443,47 +449,52 @@ class VisonicClient:
             result = await self.get_panel_status(refresh_key_data=False)
             await self.cb_send_ws_message(result)
 
-    async def wait_for_responses(self) -> bool:
-        """Wait for responses before setting rts.
+    async def wait_for_responses(
+        self, timeout: float = 5.0, retries: int = 3
+    ) -> bool:
+        """Wait for expected responses using asyncio.Event instead of polling.
 
-        If timeout, then resend request.
+        Resends the last message up to `retries` times on timeout.
         """
-        timeout = 5
-        retries = 3
-
-        i = 0
         retry = 0
         success = True
         self.rts.clear()
-        while len(self.waiting_for) > 0:
-            await asyncio.sleep(0.05)
-            i += 1
-
-            if i >= timeout * 20:
-                i = 0
-                _LOGGER.warning("TIMEOUT WAITING FOR: %s", self.waiting_for)
-                # If only waiting for ACK, move on.
-                if self.waiting_for == [ACK]:
-                    self.waiting_for = []
-                    continue
-                if retry < retries:
-                    _LOGGER.info("RESENDING: %s", self.last_sent_message.hex(" "))
-                    self.cb_send_message(self.last_sent_message)
-                    retry += 1
-                else:
-                    _LOGGER.error(
-                        "NO RESPONSE RECEIVED: %s", self.last_sent_message.hex(" ")
+        try:
+            while self.waiting_for:
+                self._responses_complete.clear()
+                if not self.waiting_for:
+                    break
+                try:
+                    await asyncio.wait_for(
+                        self._responses_complete.wait(), timeout=timeout
                     )
-                    success = False
-                    self.waiting_for = []
-
-        self.rts.set()
+                except TimeoutError:
+                    _LOGGER.warning("TIMEOUT WAITING FOR: %s", self.waiting_for)
+                    # If only waiting for ACK, move on.
+                    if self.waiting_for == [ACK]:
+                        self.waiting_for = []
+                        self._responses_complete.set()
+                        break
+                    if retry < retries:
+                        _LOGGER.info("RESENDING: %s", self.last_sent_message.hex(" "))
+                        self.cb_send_message(self.last_sent_message)
+                        retry += 1
+                    else:
+                        _LOGGER.error(
+                            "NO RESPONSE RECEIVED: %s",
+                            self.last_sent_message.hex(" "),
+                        )
+                        success = False
+                        self.waiting_for = []
+                        self._responses_complete.set()
+                        break
+        finally:
+            self.rts.set()
         return success
 
     async def wait_for_empty_queue(self):
-        """Wait for empty queue."""
-        while self.send_queue.qsize() > 0:
-            await asyncio.sleep(0.1)
+        """Wait until all queued items have been processed."""
+        await self.send_queue.join()
 
     def send_message_no_wait(
         self,

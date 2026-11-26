@@ -1,11 +1,13 @@
 # Websocket Server Accepted Requests
 
+> **Authentication & TLS:** When `websocket_auth_key` is configured, clients must send the HTTP header `Authorization: Bearer <websocket_auth_key>` during the WebSocket handshake. Enable `websocket_ssl` when exposing the WebSocket endpoint outside a trusted host.
+
 The Websocket server accepts the following requests:
 
-Requests are in json format as below.
+Requests are in JSON format as below.
 
-```
-{"request":"[COMMAND]", "[PARAM NAME]":[PARAM VALUE]}
+```json
+{"request": "[COMMAND]", "[PARAM NAME]": "[PARAM VALUE]"}
 ```
 
 ## Status
@@ -39,21 +41,30 @@ You can issue any status command by id to the websocket client and it will reque
 
 ## Setting
 
-Very similar to the command above, you can request any setting and the websocket server will return a json decoded version of the response.  Setting ids are as per the list of Command35 settings.
-```
-{"request":"setting","id": [SETTING ID]}
+Very similar to the command above, you can request any setting and the websocket server will return a json decoded version of the response.  Setting ids are as per the list of Command35 settings.  Pass `"use_42": true` to query via command `42` instead of `35`.
+```json
+{"request": "setting", "id": 1, "use_42": false}
 ```
 
 ## All Commands
 Will issue the full list of commands to the panel and return a json output of the decoded responses.  Known only parameter determines whether to use an incremental number list for the commands to run or the known list defined in the Status Commands list.  It will, however, not issue commands that are special and should not be sent to the panel.
-```
-{"request":"all_commands", "known_only": True}
+```json
+{"request": "all_commands", "known_only": true}
 ```
 
 ## All Settings
 Will issue the full list of settings requests to the panel and return a json output of the decoded responses.  Known only parameter determines whether to use an incremental number list for the settings to run or the known list defined in the Command35 Settings list.  There are a small number that will be skipped no matter what this setting as they maybe destructive.
+```json
+{"request": "all_settings", "known_only": true, "use_42": false}
 ```
-{"request":"all_settings", "known_only": True}
+
+## Siren
+
+Trigger or silence the panel siren using the panel master user code.
+```json
+{"request": "siren", "action": "sound"}
+
+{"request": "siren", "action": "mute"}
 ```
 
 ## Turn On/Off
