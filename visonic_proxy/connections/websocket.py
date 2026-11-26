@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 import datetime as dt
+import hmac
 import http
 import itertools
 import json
@@ -32,7 +33,7 @@ from ..events import Event, EventType
 from ..managers.storage_manager import DataStore
 from ..message import QueuedMessage
 from ..proxy import Proxy
-from ..transcoders.b0_decoder import B0Decoder, B0Message
+from ..transcoders.b0_decoder import B0Decoder, B0Message, InvalidMessageException
 from ..transcoders.builder import MessageBuilder
 from ..transcoders.helpers import (
     VPCommand,
@@ -208,7 +209,8 @@ class WebsocketServer:
             return None
 
         if auth_header := request.headers.get("Authorization"):
-            if auth_header == f"Bearer {self.proxy.config.WEBSOCKET_AUTH_KEY}":
+            expected = f"Bearer {self.proxy.config.WEBSOCKET_AUTH_KEY}"
+            if hmac.compare_digest(auth_header, expected):
                 return None
 
         _LOGGER.warning(
@@ -266,42 +268,42 @@ class WebsocketServer:
             client_ip,
         )
         self.websockets[websocket.id] = websocket
-        websocket.respond(
-            http.HTTPStatus.ACCEPTED, json.dumps({"connection": "success"})
-        )
 
-        while True:
-            try:
-                message = await websocket.recv()
-                msg = json.loads(message)
-                _LOGGER.info(
-                    "Received websocket message: %s", msg, extra=MsgLogLevel.L5
-                )
-                response, send_status = await self.websocket_receive_message(
-                    websocket.id, msg
-                )
-                if response:
-                    if isinstance(response, dict):
-                        await websocket.send(json.dumps(response))
-                    else:
-                        await websocket.send(response)
+        try:
+            while True:
+                try:
+                    message = await websocket.recv()
+                    msg = json.loads(message)
+                    _LOGGER.info(
+                        "Received websocket message: %s", msg, extra=MsgLogLevel.L5
+                    )
+                    response, send_status = await self.websocket_receive_message(
+                        websocket.id, msg
+                    )
+                    if response:
+                        if isinstance(response, dict):
+                            await websocket.send(json.dumps(response))
+                        else:
+                            await websocket.send(response)
 
-                    if send_status:
-                        status = await self.visonic_client.get_panel_status()
-                        await self.broadcast(status)
-            except json.decoder.JSONDecodeError as ex:  # noqa: PERF203
-                _LOGGER.error("JSON decode error: %s", ex)
-                await websocket.send(
-                    json.dumps({"error": "invalid request", "message": ex.msg})
-                )
-                continue
-            except ConnectionClosed:
-                del self.websockets[websocket.id]
-                _LOGGER.info(
-                    "Websocket client disconnected from %s",
-                    client_ip,
-                )
-                break
+                        if send_status:
+                            status = await self.visonic_client.get_panel_status()
+                            await self.broadcast(status)
+                except json.decoder.JSONDecodeError as ex:  # noqa: PERF203
+                    _LOGGER.error("JSON decode error: %s", ex)
+                    await websocket.send(
+                        json.dumps({"error": "invalid request", "message": ex.msg})
+                    )
+                    continue
+                except ConnectionClosed:
+                    _LOGGER.info(
+                        "Websocket client disconnected from %s",
+                        client_ip,
+                    )
+                    break
+        finally:
+            self.websockets.pop(websocket.id, None)
+            self.visonic_client.subscribed_messages.pop(websocket.id, None)
 
     async def send_image_message(self, event: Event):
         """Send broadcast message with image info and raw image data."""
@@ -347,7 +349,7 @@ class WebsocketServer:
 
     async def broadcast(self, message):
         """Send message to all websocket clients."""
-        for websocket in self.websockets.values():
+        for websocket in list(self.websockets.values()):
             try:
                 await websocket.send(message)
             except ConnectionClosed:  # noqa: PERF203
@@ -361,7 +363,7 @@ class WebsocketServer:
             self.name,
             self.client_id,
             data,
-            exc_info=MsgLogLevel.L4,
+            extra=MsgLogLevel.L4,
         )
 
         if self.cb_received_data:
@@ -415,165 +417,202 @@ class WebsocketServer:
         """Receive message from websocket."""
         result = None
         send_status = False
-        if request := msg.get("request"):
-            if request == "status":
-                result = await self.visonic_client.get_panel_status(
-                    refresh_key_data=True
-                )
-            elif request == "subscribe":
-                if cmds := msg.get("commands"):
-                    subs = self.add_subscription(client_id, cmds)
-                    result = {
-                        "result": "success",
-                        "subscriptions": subs,
-                    }
-            elif request == "unsubscribe":
-                if cmds := msg.get("commands"):
-                    subs = self.remove_subscription(client_id, cmds)
-                    result = {
-                        "result": "success",
-                        "subscriptions": subs,
-                    }
+        if not isinstance(msg, dict) or not (request := msg.get("request")):
+            return (
+                {
+                    "error": "invalid request",
+                    "message": "Request must be a JSON object with a 'request' field",
+                },
+                False,
+            )
 
-            elif self.visonic_client.is_init:
-                if request in ["turn_on", "turn_off"]:
-                    dev_item = msg.get("type")
-                    if dev_item == "bypass":
-                        if zone := int(msg.get("zone", 0)):
-                            response = await self.visonic_client.set_bypass(
-                                zone, request == "turn_on"
-                            )
-                            if response:
-                                msg["result"] = "success"
-                                result = msg
-                                send_status = True
+        if request == "status":
+            result = await self.visonic_client.get_panel_status(refresh_key_data=True)
+        elif request == "subscribe":
+            if cmds := msg.get("commands"):
+                subs = self.add_subscription(client_id, cmds)
+                result = {
+                    "result": "success",
+                    "subscriptions": subs,
+                }
+        elif request == "unsubscribe":
+            if cmds := msg.get("commands"):
+                subs = self.remove_subscription(client_id, cmds)
+                result = {
+                    "result": "success",
+                    "subscriptions": subs,
+                }
 
-                    if dev_item == "pgm":
-                        if pgm_id := int(msg.get("pgm_id", 0)):
-                            response = await self.visonic_client.set_pgm(
-                                pgm_id, request == "turn_on"
-                            )
-                            if response:
-                                msg["result"] = "success"
-                                result = msg
-                                send_status = False
-                elif request == "siren":
-                    if action := msg.get("action"):
-                        if (
-                            user_code
-                            := await self.visonic_client.get_master_user_code()
-                        ):
-                            if action == "sound":
-                                await self.visonic_client.sound_siren(user_code)
-                            elif action == "mute":
-                                await self.visonic_client.mute_siren(user_code)
-
-                elif request == "image":
-                    if zone := msg.get("zone"):
-                        await self.visonic_client.request_image(int(zone))
-                        result = {
-                            "request": "image",
-                            "result": "success",
-                        }
-
-                elif request == "command":
-                    cmd = str(msg.get("id"))
-                    if (
-                        cmd is not None
-                        and self.is_hex(cmd)
-                        and cmd
-                        not in [
-                            "06",
-                            "17",
-                            "35",
-                            "42",
-                            "51",
-                            "6a",
-                        ]
-                    ):
-                        cmd_name = get_lookup_value(B0CommandName, cmd)
-                        response = await self.visonic_client.get_status(
-                            cmd, refresh=True
+        elif self.visonic_client.is_init:
+            if request in ["turn_on", "turn_off"]:
+                dev_item = msg.get("type")
+                if dev_item == "bypass":
+                    try:
+                        zone = int(msg.get("zone", 0))
+                    except (TypeError, ValueError):
+                        return (
+                            {"error": "invalid request", "message": "Invalid zone"},
+                            False,
                         )
-                        result = {
-                            "command": cmd,
-                            "name": cmd_name,
-                            "result": response,
-                        }
-                    else:
-                        result = {
-                            "error": "invalid request",
-                            "message": "Either command not supplied or an invalid command provided",
-                        }
-                elif request == "setting":
-                    setting = int(msg.get("id"))
-                    use_42 = msg.get("use_42", False)
-                    if setting is not None and setting not in [83, 413]:
-                        setting_name = get_lookup_value(Command35Settings, setting)
-                        response = await self.visonic_client.get_setting(
-                            setting, refresh=True, use_42=use_42
-                        )
-                        result = {
-                            "setting": setting,
-                            "name": setting_name,
-                            "result": response,
-                        }
-                    else:
-                        result = {
-                            "error": "invalid request",
-                            "message": "Either setting not supplied or an invalid setting provided",
-                        }
-
-                elif request == "all_commands":
-                    known_only = msg.get("known_only", True)
-                    result = await self.visonic_client.download_all_statuses(
-                        known_only=known_only
-                    )
-
-                elif request == "all_settings":
-                    known_only = msg.get("known_only", True)
-                    use_42 = msg.get("use_42", False)
-                    result = await self.visonic_client.download_all_settings(
-                        known_only=known_only, use_42=use_42
-                    )
-
-                elif request == "send_raw_command":
-                    cmd = msg.get("cmd")
-                    if cmd:
-                        result = await self.visonic_client.send_raw_command(cmd)
-                    else:
-                        result = {
-                            "error": "invalid request",
-                            "message": "No command supplied",
-                        }
-
-                elif request == "arm":
-                    state = msg.get("state")
-                    partition = int(msg.get("partition", 7))
-                    if state is not None:
-                        response = await self.visonic_client.arming(
-                            partition, state, msg.get("code")
+                    if zone:
+                        response = await self.visonic_client.set_bypass(
+                            zone, request == "turn_on"
                         )
                         if response:
-                            result = {"request": "arm", "result": "success"}
-                        else:
-                            result = {"request": "arm", "result": "failed"}
-                else:
-                    result = json.dumps(
-                        {
-                            "error": "invalid request",
-                            "message": f"{request} is not a valid request",
-                        }
+                            msg["result"] = "success"
+                            result = msg
+                            send_status = True
+
+                if dev_item == "pgm":
+                    try:
+                        pgm_id = int(msg.get("pgm_id", 0))
+                    except (TypeError, ValueError):
+                        return (
+                            {"error": "invalid request", "message": "Invalid pgm_id"},
+                            False,
+                        )
+                    if pgm_id:
+                        response = await self.visonic_client.set_pgm(
+                            pgm_id, request == "turn_on"
+                        )
+                        if response:
+                            msg["result"] = "success"
+                            result = msg
+                            send_status = False
+            elif request == "siren":
+                if action := msg.get("action"):
+                    if (
+                        user_code
+                        := await self.visonic_client.get_master_user_code()
+                    ):
+                        if action == "sound":
+                            await self.visonic_client.sound_siren(user_code)
+                        elif action == "mute":
+                            await self.visonic_client.mute_siren(user_code)
+
+            elif request == "image":
+                if zone := msg.get("zone"):
+                    try:
+                        zone_id = int(zone)
+                    except (TypeError, ValueError):
+                        return (
+                            {"error": "invalid request", "message": "Invalid zone"},
+                            False,
+                        )
+                    await self.visonic_client.request_image(zone_id)
+                    result = {
+                        "request": "image",
+                        "result": "success",
+                    }
+
+            elif request == "command":
+                cmd = str(msg.get("id")) if msg.get("id") is not None else None
+                if (
+                    cmd is not None
+                    and self.is_hex(cmd)
+                    and cmd
+                    not in [
+                        "06",
+                        "17",
+                        "35",
+                        "42",
+                        "51",
+                        "6a",
+                    ]
+                ):
+                    cmd_name = get_lookup_value(B0CommandName, cmd)
+                    response = await self.visonic_client.get_status(
+                        cmd, refresh=True
                     )
+                    result = {
+                        "command": cmd,
+                        "name": cmd_name,
+                        "result": response,
+                    }
+                else:
+                    result = {
+                        "error": "invalid request",
+                        "message": "Either command not supplied or an invalid command provided",
+                    }
+            elif request == "setting":
+                raw_setting = msg.get("id")
+                try:
+                    setting = int(raw_setting) if raw_setting is not None else None
+                except (TypeError, ValueError):
+                    setting = None
+                use_42 = msg.get("use_42", False)
+                if setting is not None and setting not in [83, 413]:
+                    setting_name = get_lookup_value(Command35Settings, setting)
+                    response = await self.visonic_client.get_setting(
+                        setting, refresh=True, use_42=use_42
+                    )
+                    result = {
+                        "setting": setting,
+                        "name": setting_name,
+                        "result": response,
+                    }
+                else:
+                    result = {
+                        "error": "invalid request",
+                        "message": "Either setting not supplied or an invalid setting provided",
+                    }
+
+            elif request == "all_commands":
+                known_only = msg.get("known_only", True)
+                result = await self.visonic_client.download_all_statuses(
+                    known_only=known_only
+                )
+
+            elif request == "all_settings":
+                known_only = msg.get("known_only", True)
+                use_42 = msg.get("use_42", False)
+                result = await self.visonic_client.download_all_settings(
+                    known_only=known_only, use_42=use_42
+                )
+
+            elif request == "send_raw_command":
+                cmd = msg.get("cmd")
+                if cmd and isinstance(cmd, str) and self.is_hex(cmd):
+                    result = await self.visonic_client.send_raw_command(cmd)
+                else:
+                    result = {
+                        "error": "invalid request",
+                        "message": "No valid hex command supplied",
+                    }
+
+            elif request == "arm":
+                state = msg.get("state")
+                try:
+                    partition = int(msg.get("partition", 7))
+                except (TypeError, ValueError):
+                    return (
+                        {"error": "invalid request", "message": "Invalid partition"},
+                        False,
+                    )
+                if state is not None:
+                    response = await self.visonic_client.arming(
+                        partition, state, msg.get("code")
+                    )
+                    if response:
+                        result = {"request": "arm", "result": "success"}
+                    else:
+                        result = {"request": "arm", "result": "failed"}
             else:
                 result = json.dumps(
                     {
-                        "error": "unable to service request",
-                        "message": "server not initialised",
+                        "error": "invalid request",
+                        "message": f"{request} is not a valid request",
                     }
                 )
+        else:
+            result = json.dumps(
+                {
+                    "error": "unable to service request",
+                    "message": "server not initialised",
+                }
+            )
 
-            return result, send_status
+        return result, send_status
 
     async def send_status(self, event: Event):
         """Send status message."""
@@ -607,7 +646,18 @@ class WebsocketServer:
         """Process send queue."""
         while True:
             data: bytes = await self.send_queue.get()
-            await self.visonic_client.receive_message(data)
+            try:
+                await self.visonic_client.receive_message(data)
+            except asyncio.CancelledError:
+                raise
+            except Exception as ex:  # noqa: BLE001
+                _LOGGER.error(
+                    "Error processing websocket receive queue item: %s\n%s",
+                    ex,
+                    traceback.format_exc(),
+                )
+            finally:
+                self.send_queue.task_done()
 
 
 class QID:
@@ -778,6 +828,8 @@ class VisonicClient:
 
                     else:
                         await self.process_message(message_class, dec)
+                except InvalidMessageException as ex:
+                    _LOGGER.warning("Ignoring invalid B0 message: %s", ex)
                 except Exception as ex:  # noqa: BLE001
                     _LOGGER.error(
                         "Unknown websocket error.  Error is: %s\n%s",
@@ -878,13 +930,22 @@ class VisonicClient:
             if dec.msg_type == MessageType.RESPONSE:
                 if dec.cmd in [B0CommandName.SETTINGS_35, B0CommandName.SETTINGS_42]:
                     setting_name = get_lookup_value(Command35Settings, dec.setting)
+                    is_sensitive = any(
+                        tok in str(setting_name).lower()
+                        for tok in ("code", "password")
+                    )
+                    setting_value = (
+                        "***REDACTED***"
+                        if is_sensitive
+                        else self.datastore.get_setting(
+                            f"{dec.setting}_{setting_name}",
+                            dec.cmd == B0CommandName.SETTINGS_42,
+                        )
+                    )
                     _LOGGER.info(
                         "SETTING: %s: %s",
                         f"{setting_name} ({dec.setting})",
-                        self.datastore.get_setting(
-                            f"{dec.setting}_{setting_name}",
-                            dec.cmd == B0CommandName.SETTINGS_42,
-                        ),
+                        setting_value,
                         extra=MsgLogLevel.L4,
                     )
                 else:
@@ -1020,8 +1081,19 @@ class VisonicClient:
             # Wait for rts
             await self.rts.wait()
             _, _, msg, wait_for = await self.send_queue.get()
-            async with self.send_lock:
-                await self._send_message_and_wait(msg, wait_for)
+            try:
+                async with self.send_lock:
+                    await self._send_message_and_wait(msg, wait_for)
+            except asyncio.CancelledError:
+                raise
+            except Exception as ex:  # noqa: BLE001
+                _LOGGER.error(
+                    "Error processing VisonicClient send queue: %s\n%s",
+                    ex,
+                    traceback.format_exc(),
+                )
+            finally:
+                self.send_queue.task_done()
 
     async def _send_message_and_wait(
         self, msg: bytes | VPCommand, wait_for: list[str] | None = None
@@ -1460,37 +1532,37 @@ class VisonicClient:
                     else:
                         i["name"] = f"{dev_type.title()} {d + 1}"
 
-                        if SENSOR_TYPES.get(dev_type):
-                            # Fix for compaining about set not dict
-                            s = {str(k): v for k, v in SENSOR_TYPES.get(dev_type).items()}
-                            try:
-                                if device_type_info := s.get(str(i["sub_type"])):
-                                    i["device_type"] = device_type_info.func.name
-                                    i["device_model"] = device_type_info.name
-                                    if tamper_actives.get(dev_type):
-                                        i["active_tamper"] = (
-                                            tamper_actives[dev_type][d] == 1
-                                        )
-                                        i["tamper_alert"] = tamper_alerts[dev_type][d] == 1
-                                else:
-                                    _LOGGER.warning(
-                                        "Unrecognised device: %s - %s",
-                                        dev_type,
-                                        i.get("sub_type"),
+                    if SENSOR_TYPES.get(dev_type):
+                        # Fix for compaining about set not dict
+                        s = {str(k): v for k, v in SENSOR_TYPES.get(dev_type).items()}
+                        try:
+                            if device_type_info := s.get(str(i["sub_type"])):
+                                i["device_type"] = device_type_info.func.name
+                                i["device_model"] = device_type_info.name
+                                if tamper_actives.get(dev_type):
+                                    i["active_tamper"] = (
+                                        tamper_actives[dev_type][d] == 1
                                     )
-                                    i["device_type"] = dev_type.title()
-                                    i["device_model"] = (
-                                        f"{dev_type.title()}-{i['device_type_id']}"
-                                    )
-                            except (KeyError, AttributeError) as ex:
-                                _LOGGER.error(
-                                    "Error processing device: %s - %s - %s - %s",
+                                    i["tamper_alert"] = tamper_alerts[dev_type][d] == 1
+                            else:
+                                _LOGGER.warning(
+                                    "Unrecognised device: %s - %s",
                                     dev_type,
                                     i.get("sub_type"),
-                                    dev,
-                                    ex
                                 )
-                                i = {}
+                                i["device_type"] = dev_type.title()
+                                i["device_model"] = (
+                                    f"{dev_type.title()}-{i['device_type_id']}"
+                                )
+                        except (KeyError, AttributeError) as ex:
+                            _LOGGER.error(
+                                "Error processing device: %s - %s - %s - %s",
+                                dev_type,
+                                i.get("sub_type"),
+                                dev,
+                                ex,
+                            )
+                            i = {}
 
                     if dev_type == "pgm":
                         i["on"] = pgm_status[d] == 1
@@ -1676,11 +1748,13 @@ class VisonicClient:
         """Set a PGM output.  Can be timed with duration in seconds."""
         # 0d b0 00 27 09 aa aa 11 ff 08 0b 02 01 00 43 5f 0a
         pgm_data = bits_to_le_bytes(pgm_ids, 16)
-        download_code = (
-            (await self.get_setting(Command35Settings.USER_CODES)[0])
-            if duration
-            else (await self.get_setting(Command35Settings.DOWNLOAD_CODE))
-        )
+        if duration:
+            user_codes = await self.get_setting(Command35Settings.USER_CODES)
+            download_code = user_codes[0] if user_codes else None
+        else:
+            download_code = await self.get_setting(Command35Settings.DOWNLOAD_CODE)
+        if not download_code:
+            return False
 
         if duration is not None:
             # Use a 7a message to enable for duration

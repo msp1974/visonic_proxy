@@ -415,8 +415,13 @@ class ConnectionManager:
         """Handle connection event."""
         _LOGGER.debug("Received Disconnection Event - %s", event)
 
-        # Unregister client connection
+        # Unregister client connection and discard any partial TCP RX buffer
         self.proxy.clients.remove(event.name, event.client_id)
+        self.flow_manager.clear_rx_buffer(event.name, event.client_id)
+
+        # Release send queue if it was waiting on a CONNECTING client that failed
+        if not self.flow_manager.pending_has_connected.is_set():
+            self.flow_manager.pending_has_connected.set()
 
         # Send status message to Alarm Monitor
         if (

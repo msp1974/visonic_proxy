@@ -53,7 +53,7 @@ class B0Message:
     cmd: str
     setting: int = 0
     page: int = 0
-    data: dict = field(default_factory={})
+    data: dict = field(default_factory=dict)
     raw_data: bytes | None = None
 
 
@@ -65,9 +65,9 @@ class B0Decoder:
         # Decode structure
         try:
             struct = self.decode_structure(data)
-        except InvalidMessageException as ex:
+        except InvalidMessageException:
             _LOGGER.info("INVALID MESSAGE: %s", data.hex(" "))
-            return {"Invalid Message": ex}
+            raise
 
         # Format resulting data
         if struct.msg_type in [MessageType.RESPONSE, MessageType.PAGED_RESPONSE]:

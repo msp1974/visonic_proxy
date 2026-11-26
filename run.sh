@@ -1,11 +1,10 @@
 #!/usr/bin/with-contenv bashio
-CONFIG_PATH=/data/options.json
-
-PROXY_MODE="$(bashio::config 'proxy_mode')"
-WEBSOCKET_MODE="$(bashio::config 'websocket_mode')"
-WEBSOCKET_HOST="$(bashio::config 'websocket_host')"
-MESSAGE_LOG_LEVEL="$(bashio::config 'message_log_level')"
-LOG_LEVEL="$(bashio::config 'log_level')"
+export VISONIC_HOST="$(bashio::config 'visonic_host')"
+export WEBSOCKET_MODE="$(bashio::config 'websocket_mode')"
+export WEBSOCKET_SSL="$(bashio::config 'websocket_ssl')"
+export WEBSOCKET_AUTH_KEY="$(bashio::config 'websocket_auth_key')"
+export MESSAGE_LOG_LEVEL="$(bashio::config 'message_log_level')"
+export LOG_LEVEL="$(bashio::config 'log_level')"
 
 cd /visonic_proxy
-python3 ./run.py
+exec python3 ./run.py

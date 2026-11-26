@@ -114,8 +114,9 @@ class VPLogger:
             self.logger.addHandler(handler)
 
     def rollover(self):
-        """Rollover log file."""
-        self.f_handler.doRollover()
+        """Rollover log file if a file handler is configured."""
+        if hasattr(self, "f_handler") and self.f_handler:
+            self.f_handler.doRollover()
 
     def get_format_string(self) -> str:
         """Get format string."""

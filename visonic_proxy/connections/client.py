@@ -7,8 +7,6 @@ import logging
 from socket import AF_INET
 import traceback
 
-from urllib3.exceptions import ConnectTimeoutError
-
 from ..const import LOGGER_NAME, VIS_ACK, MsgLogLevel
 from ..events import Event, EventType
 from ..message import QueuedMessage
@@ -69,18 +67,21 @@ class ClientConnection:
 
         self.connection_in_progress = True
         try:
-            self.transport, self.protocol = await self.proxy.loop.create_connection(
-                lambda: ConnectionProtocol(
-                    self.name,
-                    self.connection_made,
-                    self.disconnected,
-                    self.data_received,
+            self.transport, self.protocol = await asyncio.wait_for(
+                self.proxy.loop.create_connection(
+                    lambda: ConnectionProtocol(
+                        self.name,
+                        self.connection_made,
+                        self.disconnected,
+                        self.data_received,
+                    ),
+                    self.host,
+                    self.port,
+                    family=AF_INET,
                 ),
-                self.host,
-                self.port,
-                family=AF_INET,
+                timeout=10,
             )
-        except (OSError, ConnectTimeoutError) as ex:
+        except (OSError, TimeoutError) as ex:
             _LOGGER.warning("Error connecting to %s. %s", self.name, ex)
             # Fire disconnected event
             self.proxy.events.fire_event(
@@ -90,6 +91,11 @@ class ClientConnection:
                     client_id=self.parent_connection_id,
                 )
             )
+            return False
+        else:
+            return True
+        finally:
+            self.connection_in_progress = False
 
     def connection_made(self, transport: asyncio.Transport):
         """Handle connection made callback."""
@@ -193,12 +199,26 @@ class ClientConnection:
 
     async def handle_disconnect_event(self, event: Event):
         """Handle disconnect event."""
-        if event.name == self.name:
+        if event.name == self.name and (
+            event.client_id is None or event.client_id == self.parent_connection_id
+        ):
             await self.shutdown()
+
+    def _cleanup_resources(self):
+        """Unsubscribe listeners and stop watchdog idempotently."""
+        if self.unsubscribe_listeners:
+            for unsub in self.unsubscribe_listeners:
+                unsub()
+            self.unsubscribe_listeners.clear()
+
+        if self.watchdog:
+            self.watchdog.stop_sync()
+            self.watchdog = None
 
     def disconnected(self, transport: asyncio.Transport):
         """Disconnected callback."""
         self.connected = False
+        self._cleanup_resources()
         _LOGGER.info(
             "%s %s server has disconnected",
             self.name,
@@ -207,7 +227,7 @@ class ClientConnection:
         )
         if transport:
             transport.close()
-        # Fire connected event
+        # Fire disconnected event
         self.proxy.events.fire_event(
             Event(
                 name=self.name,
@@ -224,14 +244,7 @@ class ClientConnection:
             self.parent_connection_id,
         )
 
-        # Unsubscribe listeners
-        if self.unsubscribe_listeners:
-            for unsub in self.unsubscribe_listeners:
-                unsub()
-
-        # Stop watchdog
-        if self.watchdog:
-            await self.watchdog.stop()
+        self._cleanup_resources()
 
         self.connected = False
         if self.transport:

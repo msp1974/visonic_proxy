@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import datetime as dt
 import itertools
 import logging
-import re
 import time
 import traceback
 
@@ -103,6 +102,8 @@ class FlowManager:
         self.ack_awaiter: WaitingAck = None
         self.active_alarm_owner: ConnectionName | None = None
         self.active_alarm_owner_until: float = 0.0
+        self._rx_buffers: dict[tuple[ConnectionName, int | str], bytearray] = {}
+        self._pl31_decoder = PowerLink31MessageDecoder()
 
         self._unsubscribe_listeners: list[Callable] = []
 
@@ -169,237 +170,316 @@ class FlowManager:
             data,
         )
 
+    def clear_rx_buffer(self, source: ConnectionName, client_id: int | str):
+        """Discard buffered partial TCP bytes for a disconnected client."""
+        self._rx_buffers.pop((source, client_id), None)
+
+    def _extract_pl31_frames(
+        self, source: ConnectionName, client_id: int | str, data: bytes
+    ) -> list[bytes]:
+        """Reassemble complete PowerLink 3.1 frames from an arbitrary TCP byte stream."""
+        max_buffer_size = 65536
+        buf = self._rx_buffers.setdefault((source, client_id), bytearray())
+        buf.extend(data)
+
+        frames: list[bytes] = []
+        while buf:
+            start = buf.find(b"\n")
+            if start == -1:
+                if len(buf) > max_buffer_size:
+                    _LOGGER.warning(
+                        "Clearing oversized garbage RX buffer for %s %s",
+                        source,
+                        client_id,
+                    )
+                    buf.clear()
+                break
+            if start > 0:
+                del buf[:start]
+
+            # Minimum header: \n (1) + CRC16 (4) + LENGTH (4)
+            if len(buf) < 9:
+                break
+
+            try:
+                body_len = int(buf[5:9].decode("ascii"), 16)
+            except (UnicodeDecodeError, ValueError):
+                _LOGGER.warning(
+                    "Invalid PowerLink 3.1 length header from %s %s; resyncing",
+                    source,
+                    client_id,
+                )
+                del buf[:1]
+                continue
+
+            if body_len <= 0 or body_len > max_buffer_size:
+                _LOGGER.warning(
+                    "Out-of-range PowerLink 3.1 length %s from %s %s; resyncing",
+                    body_len,
+                    source,
+                    client_id,
+                )
+                del buf[:1]
+                continue
+
+            total_len = 10 + body_len  # \n + 4 CRC + 4 LEN + body + \r
+            if len(buf) < total_len:
+                break
+
+            if buf[total_len - 1] != 0x0D:
+                _LOGGER.warning(
+                    "Missing CR terminator in PowerLink 3.1 frame from %s %s; resyncing",
+                    source,
+                    client_id,
+                )
+                del buf[:1]
+                continue
+
+            frames.append(bytes(buf[:total_len]))
+            del buf[:total_len]
+
+        return frames
+
     async def _receive_queue_processor(self):
         """Process receive queue."""
         while True:
             queued_message = await self.receive_queue.get()
-            message: QueuedReceivedMessage = queued_message[1]
+            try:
+                message: QueuedReceivedMessage = queued_message[1]
 
-            source = message.source
-            client_id = message.source_client_id
-            data = message.data
+                source = message.source
+                client_id = message.source_client_id
+                data = message.data
 
-            _LOGGER.debug("Retrieved from Receive Queue: %s", message)
+                _LOGGER.debug("Retrieved from Receive Queue: %s", message)
 
-            connection_info = self.proxy.clients.get_client(source, client_id)
+                connection_info = self.proxy.clients.get_client(source, client_id)
 
-            if not connection_info:
-                # This connection is not being managed by flow manager.
-                # Do nothing
-                _LOGGER.warning(
-                    "Flow Manager received from an unregistered connection: %s",
-                    message,
-                )
-                continue
-
-            # Update client last received
-            connection_info.last_received = dt.datetime.now()
-            self.proxy.clients.update(source, client_id, connection_info)
-
-            # Filter messages to ignore
-
-            decoded_messages: list[PowerLink31Message | NonPowerLink31Message] = []
-
-            if connection_info.send_non_pl31_messages:
-                # Convert to a PL31 message
-                decoded_messages.append(
-                    MessageBuilder(self.proxy).message_preprocessor(data)
-                )
-            else:
-                # It is possible that some messages are multiple messages combined.
-                # Need to split them, process each
-                # in turn and fire DATA RECEIVED message for each.
-                split_after = ["5d 0d"]
-                rx = re.compile(rf'(?<=({"|".join(split_after)}))[^\b]')
-                messages = [x for x in rx.split(data.hex(" ")) if x not in split_after]
-                decoded_messages = [
-                    PowerLink31MessageDecoder().decode_powerlink31_message(
-                        bytes.fromhex(msg_hex)
+                if not connection_info:
+                    # This connection is not being managed by flow manager.
+                    # Do nothing
+                    _LOGGER.warning(
+                        "Flow Manager received from an unregistered connection: %s",
+                        message,
                     )
-                    for msg_hex in messages
-                    if msg_hex.strip()
-                ]
+                    continue
 
-            # Now log and raise events for each message
-            destination = None
-            destination_client_id = None
-            for decoded_message in decoded_messages:
-                _LOGGER.info(
-                    "REC << %s %s - %s %s %s",
-                    source,
-                    client_id,
-                    f"{decoded_message.msg_id:0>4}",
-                    decoded_message.msg_type,
-                    decoded_message.data.hex(" "),
-                    extra=MsgLogLevel.L4,
-                )
-                if source == ConnectionName.ALARM:
-                    # Set panel info
-                    self.set_panel_data(
-                        decoded_message.panel_id, decoded_message.account_id
+                # Update client last received
+                connection_info.last_received = dt.datetime.now()
+                self.proxy.clients.update(source, client_id, connection_info)
+
+                decoded_messages: list[PowerLink31Message | NonPowerLink31Message] = []
+
+                if connection_info.send_non_pl31_messages:
+                    # Convert to a PL31 message
+                    decoded_messages.append(
+                        MessageBuilder(self.proxy).message_preprocessor(data)
                     )
+                else:
+                    raw_frames = self._extract_pl31_frames(source, client_id, data)
+                    for raw_frame in raw_frames:
+                        try:
+                            decoded_messages.append(
+                                self._pl31_decoder.decode_powerlink31_message(raw_frame)
+                            )
+                        except (ValueError, IndexError, UnicodeDecodeError) as ex:
+                            _LOGGER.warning(
+                                "Skipping malformed PowerLink 3.1 frame from %s %s: %s",
+                                source,
+                                client_id,
+                                ex,
+                            )
 
-                    # Update tracking info
-                    try:
-                        message_no = decoded_message.msg_id
-                        timestamp = dt.datetime.now(dt.UTC)
-                        if message_no != 0 and decoded_message.msg_type in [
+                # Now log and raise events for each message
+                for decoded_message in decoded_messages:
+                    destination = None
+                    destination_client_id = None
+                    _LOGGER.info(
+                        "REC << %s %s - %s %s %s",
+                        source,
+                        client_id,
+                        f"{decoded_message.msg_id:0>4}",
+                        decoded_message.msg_type,
+                        decoded_message.data.hex(" "),
+                        extra=MsgLogLevel.L4,
+                    )
+                    if source == ConnectionName.ALARM:
+                        # Set panel info
+                        self.set_panel_data(
+                            decoded_message.panel_id, decoded_message.account_id
+                        )
+
+                        # Update tracking info
+                        try:
+                            message_no = decoded_message.msg_id
+                            timestamp = dt.datetime.now(dt.UTC)
+                            if message_no != 0 and decoded_message.msg_type in [
+                                VIS_BBA,
+                                VIS_ACK,
+                            ]:
+                                self.proxy.message_tracker.last_message_no = message_no
+                                self.proxy.message_tracker.last_message_timestamp = (
+                                    timestamp
+                                )
+                                self.message_id_mapper.observe_alarm_msg_id(message_no)
+                                _LOGGER.debug(
+                                    "Tracking Info: msg_id: %s, timestamp: %s",
+                                    message_no,
+                                    timestamp,
+                                )
+                        except ValueError:
+                            _LOGGER.warning(
+                                "Unrecognised message format from %s %s.  Skipping decoding",
+                                source,
+                                client_id,
+                            )
+                            _LOGGER.warning("Message: %s", data)
+                            _LOGGER.warning("Powerlink: %s", decoded_message)
+                            continue
+
+                    elif source == ConnectionName.VISONIC:
+                        if decoded_message.msg_id != 0 and decoded_message.msg_type in [
                             VIS_BBA,
                             VIS_ACK,
                         ]:
-                            self.proxy.message_tracker.last_message_no = message_no
-                            self.proxy.message_tracker.last_message_timestamp = (
-                                timestamp
+                            self.message_id_mapper.observe_visonic_msg_id(
+                                decoded_message.msg_id
                             )
-                            self.message_id_mapper.observe_alarm_msg_id(message_no)
-                            _LOGGER.debug(
-                                "Tracking Info: msg_id: %s, timestamp: %s",
-                                message_no,
-                                timestamp,
-                            )
-                    except ValueError:
-                        _LOGGER.warning(
-                            "Unrecognised message format from %s %s.  Skipping decoding",
-                            source,
-                            client_id,
-                        )
-                        _LOGGER.warning("Message: %s", data)
-                        _LOGGER.warning("Powerlink: %s", decoded_message)
-                        continue
+                        if (
+                            decoded_message.msg_type in [VIS_ACK, ADM_ACK, NAK]
+                            and self.get_active_alarm_owner() == ConnectionName.VISONIC
+                        ):
+                            # Visonic acknowledged the alarm response; release turn for HA
+                            self.release_alarm_transaction()
 
-                elif source == ConnectionName.VISONIC:
-                    if decoded_message.msg_id != 0 and decoded_message.msg_type in [
-                        VIS_BBA,
-                        VIS_ACK,
-                    ]:
-                        self.message_id_mapper.observe_visonic_msg_id(
-                            decoded_message.msg_id
-                        )
-                    if (
-                        decoded_message.msg_type in [VIS_ACK, ADM_ACK, NAK]
-                        and self.get_active_alarm_owner() == ConnectionName.VISONIC
-                    ):
-                        # Visonic acknowledged the alarm response; release turn for HA
-                        self.release_alarm_transaction()
-
-                # EXPERIMENTAL - If waiting ack from a connection and get a message, release ACK wait
-                if (
-                    self.ack_awaiter
-                    and self.ack_awaiter.source == source
-                    and self.ack_awaiter.source_client_id == client_id
-                    and decoded_message.msg_type in [VIS_BBA, ADM_CID]
-                ):
-                    _LOGGER.info(
-                        "Skip waiting ack from %s as received new message",
-                        source,
-                        extra=MsgLogLevel.L5,
-                    )
-                    self.ack_awaiter = None
-                    self.release_send_queue()
-
-                # If waiting ack and receive ack, set RTS
-                elif (
-                    not self.is_rts  # Waiting for ACK
-                    and decoded_message.msg_type
-                    in [VIS_ACK, ADM_ACK, NAK]  # And this is an ACK message
-                ):
-                    # Is it our awaited ACK?
+                    # EXPERIMENTAL - If waiting ack from a connection and get a message, release ACK wait
                     if (
                         self.ack_awaiter
-                        and source == self.ack_awaiter.source
-                        and client_id == self.ack_awaiter.source_client_id
-                        and (
-                            (
-                                # Only match msg id if MATCH_ACK_MSG_ID is true - EXPERIMENTAL
-                                decoded_message.msg_id == self.ack_awaiter.msg_id
-                                or not self.proxy.config.MATCH_ACK_MSG_ID
-                            )
-                            or (
-                                # Sometimes Visonic gets out of sync and Alarm sends ACK 1 higher than Visonic waiting for
-                                source == ConnectionName.ALARM
-                                and self.ack_awaiter.desination
-                                == ConnectionName.VISONIC
-                                and decoded_message.msg_id > self.ack_awaiter.msg_id
-                            )
-                            or (
-                                # ACKs comming from the Alarm Monitor are not Powerlink messages and therefore have no message id
-                                # This overcomes that
-                                source == ConnectionName.ALARM_MONITOR
-                                and self.ack_awaiter.desination == ConnectionName.ALARM
-                                and decoded_message.msg_id == 0
-                            )
-                            or (
-                                # Sometimes HA sent messages get out of sync and Alarm sends ACK 1 higher than HA waiting for
-                                source == ConnectionName.ALARM
-                                and self.ack_awaiter.desination
-                                == ConnectionName.ALARM_MONITOR
-                                and decoded_message.msg_id > self.ack_awaiter.msg_id
-                            )
-                        )
+                        and self.ack_awaiter.source == source
+                        and self.ack_awaiter.source_client_id == client_id
+                        and decoded_message.msg_type in [VIS_BBA, ADM_CID]
                     ):
-                        # Set the destination info for the DATA RECEIVED event
-                        # So the router knows where to forward it to
-                        destination = self.ack_awaiter.desination
-                        destination_client_id = self.ack_awaiter.destination_client_id
-
                         _LOGGER.info(
-                            "Received awaited ACK for %s %s from %s %s for msg id %s",
-                            self.ack_awaiter.desination,
-                            self.ack_awaiter.destination_client_id,
+                            "Skip waiting ack from %s as received new message",
                             source,
-                            client_id,
-                            decoded_message.msg_id,
                             extra=MsgLogLevel.L5,
                         )
-                        # If ACK and Waiter out of sync, log message
-                        # This is accepted above if 1 out
-                        # It is expected that ACKs from Alarm Monitor will have a message id of 0 as non powerlink message
-                        # so dont log if that is the case
-                        if decoded_message.msg_id != self.ack_awaiter.msg_id and not (
-                            source == ConnectionName.ALARM_MONITOR
-                            and decoded_message.msg_id == 0
+                        self.ack_awaiter = None
+                        self.release_send_queue()
+
+                    # If waiting ack and receive ack, set RTS
+                    elif (
+                        not self.is_rts  # Waiting for ACK
+                        and decoded_message.msg_type
+                        in [VIS_ACK, ADM_ACK, NAK]  # And this is an ACK message
+                    ):
+                        # Is it our awaited ACK?
+                        if (
+                            self.ack_awaiter
+                            and source == self.ack_awaiter.source
+                            and client_id == self.ack_awaiter.source_client_id
+                            and (
+                                (
+                                    # Only match msg id if MATCH_ACK_MSG_ID is true - EXPERIMENTAL
+                                    decoded_message.msg_id == self.ack_awaiter.msg_id
+                                    or not self.proxy.config.MATCH_ACK_MSG_ID
+                                )
+                                or (
+                                    # Sometimes Visonic gets out of sync and Alarm sends ACK 1 higher than Visonic waiting for
+                                    source == ConnectionName.ALARM
+                                    and self.ack_awaiter.desination
+                                    == ConnectionName.VISONIC
+                                    and decoded_message.msg_id > self.ack_awaiter.msg_id
+                                )
+                                or (
+                                    # ACKs comming from the Alarm Monitor are not Powerlink messages and therefore have no message id
+                                    # This overcomes that
+                                    source == ConnectionName.ALARM_MONITOR
+                                    and self.ack_awaiter.desination == ConnectionName.ALARM
+                                    and decoded_message.msg_id == 0
+                                )
+                                or (
+                                    # Sometimes HA sent messages get out of sync and Alarm sends ACK 1 higher than HA waiting for
+                                    source == ConnectionName.ALARM
+                                    and self.ack_awaiter.desination
+                                    == ConnectionName.ALARM_MONITOR
+                                    and decoded_message.msg_id > self.ack_awaiter.msg_id
+                                )
+                            )
                         ):
+                            # Set the destination info for the DATA RECEIVED event
+                            # So the router knows where to forward it to
+                            destination = self.ack_awaiter.desination
+                            destination_client_id = self.ack_awaiter.destination_client_id
+
                             _LOGGER.info(
-                                "ACK was out of sync with awaiter. ACK: %s, WAITER: %s",
+                                "Received awaited ACK for %s %s from %s %s for msg id %s",
+                                self.ack_awaiter.desination,
+                                self.ack_awaiter.destination_client_id,
+                                source,
+                                client_id,
                                 decoded_message.msg_id,
-                                self.ack_awaiter.msg_id,
                                 extra=MsgLogLevel.L5,
                             )
-                        # Reset awaiting ack
-                        self.ack_awaiter = None
+                            # If ACK and Waiter out of sync, log message
+                            # This is accepted above if 1 out
+                            # It is expected that ACKs from Alarm Monitor will have a message id of 0 as non powerlink message
+                            # so dont log if that is the case
+                            if decoded_message.msg_id != self.ack_awaiter.msg_id and not (
+                                source == ConnectionName.ALARM_MONITOR
+                                and decoded_message.msg_id == 0
+                            ):
+                                _LOGGER.info(
+                                    "ACK was out of sync with awaiter. ACK: %s, WAITER: %s",
+                                    decoded_message.msg_id,
+                                    self.ack_awaiter.msg_id,
+                                    extra=MsgLogLevel.L5,
+                                )
+                            # Reset awaiting ack
+                            self.ack_awaiter = None
 
-                # Send message to listeners
-                self.proxy.events.fire_event(
-                    Event(
-                        name=source,
-                        event_type=EventType.DATA_RECEIVED,
-                        client_id=client_id,
-                        event_data=decoded_message,
-                        destination=destination,
-                        destination_client_id=destination_client_id,
+                    # Send message to listeners
+                    self.proxy.events.fire_event(
+                        Event(
+                            name=source,
+                            event_type=EventType.DATA_RECEIVED,
+                            client_id=client_id,
+                            event_data=decoded_message,
+                            destination=destination,
+                            destination_client_id=destination_client_id,
+                        )
                     )
-                )
 
-                origin_owner = (
-                    self.get_active_alarm_owner()
-                    if source == ConnectionName.ALARM
-                    else None
-                )
-
-                # Route message
-                await self.message_router.route_message(
-                    RoutableMessage(
-                        source=source,
-                        source_client_id=client_id,
-                        destination=destination,
-                        destination_client_id=destination_client_id,
-                        message=decoded_message,
-                        origin_owner=origin_owner,
+                    origin_owner = (
+                        self.get_active_alarm_owner()
+                        if source == ConnectionName.ALARM
+                        else None
                     )
-                )
 
-                if not self.ack_awaiter:
-                    self.release_send_queue()
+                    # Route message
+                    await self.message_router.route_message(
+                        RoutableMessage(
+                            source=source,
+                            source_client_id=client_id,
+                            destination=destination,
+                            destination_client_id=destination_client_id,
+                            message=decoded_message,
+                            origin_owner=origin_owner,
+                        )
+                    )
+
+                    if not self.ack_awaiter:
+                        self.release_send_queue()
+            except asyncio.CancelledError:
+                raise
+            except Exception as ex:  # noqa: BLE001
+                _LOGGER.error(
+                    "Unhandled error in receive queue processor: %s\n%s",
+                    ex,
+                    traceback.format_exc(),
+                )
+            finally:
+                self.receive_queue.task_done()
 
     async def queue_message(
         self,
@@ -443,92 +523,118 @@ class FlowManager:
             await self.rts.wait()
 
             queue_message = await self.sender_queue.get()
+            try:
+                message: QueuedMessage = queue_message[1]
 
-            message: QueuedMessage = queue_message[1]
-
-            _LOGGER.debug("Retrieved from Send Queue: %s", message)
-            # A destination client id of 0 is send to first connection
-            # get_connection_info will return the first client connection is passed 0 as client_id
-            connection_info = self.proxy.clients.get_client(
-                message.destination, message.destination_client_id
-            )
-
-            if connection_info:
-                # If we did have a desintaiotn client_id of 0
-                # Update the destination client_id in the message from our connection info
-                # Which should now be our first client
-                if message.destination_client_id == 0:
-                    message.destination_client_id = connection_info.id
-
-                # Here we wait if the message is destined for a pending connection until
-                # it has connected.
-                if connection_info.status == ConnectionStatus.CONNECTING:
-                    self.pending_has_connected.clear()
-
-                # Wait for the pending connection.  If it is not a pending connection, this will
-                # just continuie.
-                await self.pending_has_connected.wait()
-
-                # Avoid interleaving HA requests into an active Visonic/mobile app transaction
-                if (
-                    message.source == ConnectionName.ALARM_MONITOR
-                    and message.destination == ConnectionName.ALARM
-                    and message.message.msg_type == VIS_BBA
-                    and self.get_active_alarm_owner() == ConnectionName.VISONIC
-                ):
-                    remaining = self.active_alarm_owner_until - time.monotonic()
-                    if remaining > 0:
-                        with contextlib.suppress(TimeoutError):
-                            await asyncio.wait_for(
-                                self.transaction_idle.wait(), timeout=remaining
-                            )
-
-                if (
-                    message.destination == ConnectionName.ALARM
-                    and message.message.msg_type == VIS_BBA
-                ):
-                    self.claim_alarm_transaction(message.source)
-
-                msg_id = await self._send_message(message)
-
-                # Send message to listeners
-                self.proxy.events.fire_event(
-                    Event(
-                        message.destination,
-                        EventType.DATA_SENT,
-                        message.destination_client_id,
-                        message.message.data,
-                    )
+                _LOGGER.debug("Retrieved from Send Queue: %s", message)
+                # A destination client id of 0 is send to first connection
+                # get_connection_info will return the first client connection is passed 0 as client_id
+                connection_info = self.proxy.clients.get_client(
+                    message.destination, message.destination_client_id
                 )
 
-                if (
-                    message.message.msg_type in [VIS_BBA, ADM_CID]
-                    and message.requires_ack
-                    and connection_info.requires_ack
-                ):
-                    # Hold which connection requires the ACK we receive
-                    self.ack_awaiter = WaitingAck(
-                        message.destination,
-                        message.destination_client_id,
-                        message.source,
-                        message.source_client_id,
-                        msg_id,
-                    )
-                    _LOGGER.info(
-                        "Waiting ACK: From %s %s for %s %s for msg id %s",
-                        message.destination,
-                        message.destination_client_id,
-                        message.source,
-                        message.source_client_id,
-                        message.message.msg_id,
-                        extra=MsgLogLevel.L5,
-                    )
-                    await self.wait_for_ack(
-                        message.destination, message.destination_client_id, msg_id
+                if connection_info:
+                    # If we did have a desintaiotn client_id of 0
+                    # Update the destination client_id in the message from our connection info
+                    # Which should now be our first client
+                    if message.destination_client_id == 0:
+                        message.destination_client_id = connection_info.id
+
+                    # Here we wait if the message is destined for a pending connection until
+                    # it has connected (bounded to avoid deadlocking the send queue).
+                    if connection_info.status == ConnectionStatus.CONNECTING:
+                        self.pending_has_connected.clear()
+                        try:
+                            await asyncio.wait_for(
+                                self.pending_has_connected.wait(), timeout=15
+                            )
+                        except TimeoutError:
+                            _LOGGER.warning(
+                                "Timed out waiting for %s %s to finish connecting",
+                                message.destination,
+                                message.destination_client_id,
+                            )
+                            self.pending_has_connected.set()
+                            continue
+
+                        # Re-fetch client state after connection attempt completes or fails
+                        connection_info = self.proxy.clients.get_client(
+                            message.destination, message.destination_client_id
+                        )
+                        if (
+                            not connection_info
+                            or connection_info.status != ConnectionStatus.CONNECTED
+                        ):
+                            continue
+
+                    # Avoid interleaving HA requests into an active Visonic/mobile app transaction
+                    if (
+                        message.source == ConnectionName.ALARM_MONITOR
+                        and message.destination == ConnectionName.ALARM
+                        and message.message.msg_type == VIS_BBA
+                        and self.get_active_alarm_owner() == ConnectionName.VISONIC
+                    ):
+                        remaining = self.active_alarm_owner_until - time.monotonic()
+                        if remaining > 0:
+                            with contextlib.suppress(TimeoutError):
+                                await asyncio.wait_for(
+                                    self.transaction_idle.wait(), timeout=remaining
+                                )
+
+                    if (
+                        message.destination == ConnectionName.ALARM
+                        and message.message.msg_type == VIS_BBA
+                    ):
+                        self.claim_alarm_transaction(message.source)
+
+                    msg_id = await self._send_message(message)
+
+                    # Send message to listeners
+                    self.proxy.events.fire_event(
+                        Event(
+                            message.destination,
+                            EventType.DATA_SENT,
+                            message.destination_client_id,
+                            message.message.data,
+                        )
                     )
 
-            # Message done even if not sent due to no clients
-            self.sender_queue.task_done()
+                    if (
+                        message.message.msg_type in [VIS_BBA, ADM_CID]
+                        and message.requires_ack
+                        and connection_info.requires_ack
+                    ):
+                        # Hold which connection requires the ACK we receive
+                        self.ack_awaiter = WaitingAck(
+                            message.destination,
+                            message.destination_client_id,
+                            message.source,
+                            message.source_client_id,
+                            msg_id,
+                        )
+                        _LOGGER.info(
+                            "Waiting ACK: From %s %s for %s %s for msg id %s",
+                            message.destination,
+                            message.destination_client_id,
+                            message.source,
+                            message.source_client_id,
+                            message.message.msg_id,
+                            extra=MsgLogLevel.L5,
+                        )
+                        await self.wait_for_ack(
+                            message.destination, message.destination_client_id, msg_id
+                        )
+            except asyncio.CancelledError:
+                raise
+            except Exception as ex:  # noqa: BLE001
+                _LOGGER.error(
+                    "Unhandled error in send queue processor: %s\n%s",
+                    ex,
+                    traceback.format_exc(),
+                )
+            finally:
+                # Message done even if not sent due to no clients
+                self.sender_queue.task_done()
             await asyncio.sleep(0.001)
 
     async def _send_message(self, queued_message: QueuedMessage) -> int | None:

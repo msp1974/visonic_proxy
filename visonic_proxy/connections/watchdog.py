@@ -52,16 +52,21 @@ class Watchdog:
         """Schedule next run of watchdog."""
         self._watchdog_timer = self.proxy.loop.call_later(15, self._runner)
 
-    async def stop(self):
-        """Stop watchdog timer."""
+    def stop_sync(self):
+        """Stop watchdog timer synchronously."""
         self._run_watchdog = False
 
         # Unsubscribe all listeners
         for unsub in self._unsubscribe_listeners:
             unsub()
+        self._unsubscribe_listeners.clear()
 
         if self._watchdog_timer and not self._watchdog_timer.cancelled():
             self._watchdog_timer.cancel()
+
+    async def stop(self):
+        """Stop watchdog timer."""
+        self.stop_sync()
 
     async def notify_activity(self, event: Event):
         """Update last activity."""

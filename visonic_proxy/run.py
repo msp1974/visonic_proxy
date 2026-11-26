@@ -16,12 +16,15 @@ from visonic_proxy import __VERSION__
 from visonic_proxy.connections.manager import ConnectionManager
 from visonic_proxy.const import (
     LOGGER_NAME,
-    Config,
     ConnectionName,
     ManagerStatus,
     MsgLogLevel,
 )
-from visonic_proxy.helpers.env import get_env_var, is_running_as_addon, process_env_vars
+from visonic_proxy.helpers.env import (
+    is_running_as_addon,
+    process_env_vars,
+    redact_config_value,
+)
 from visonic_proxy.helpers.ssl import validate_ssl_certificates
 from visonic_proxy.logger import VPLogger
 from visonic_proxy.managers.message_router import MessageCoordinatorStatus
@@ -47,11 +50,18 @@ class VisonicProxy:
     async def start(self):
         """Run managers."""
 
-        # Initiate logger
-        log_class = VPLogger()
+        # Process config from add-on options / env before configuring logger
+        config = process_env_vars()
 
-        # start a new log on each restart
-        if Config.LOG_FILE or get_env_var("log_file"):
+        # Initiate logger using resolved config
+        log_class = VPLogger(
+            log_file=config.LOG_FILE,
+            log_level=config.LOG_LEVEL,
+            message_log_level=int(config.MESSAGE_LOG_LEVEL),
+        )
+
+        # Start a new log on each restart when file logging is enabled
+        if config.LOG_FILE:
             log_class.rollover()
 
         _LOGGER.info("Version: %s", __VERSION__)
@@ -59,14 +69,7 @@ class VisonicProxy:
             "Environment: %s", "HA Addon" if is_running_as_addon() else "Standalone"
         )
 
-        # Process config env and set config
-        _LOGGER.debug("Processing ENV variables...")
-        config = process_env_vars(log_class)
-
-        # Set message log level in case changed by env value
-        log_class.message_filter.set_message_log_level(int(config.MESSAGE_LOG_LEVEL))
-
-        self.proxy = Proxy(self.loop, config)
+        self.proxy = Proxy(self.loop, log_class, config)
         self.proxy.is_addon = is_running_as_addon()
 
         self.proxy.status.proxy_mode = self.proxy.config.PROXY_MODE
@@ -76,17 +79,26 @@ class VisonicProxy:
         _LOGGER.info("Log Level: %s", logging.getLevelName(self.proxy.config.LOG_LEVEL))
         _LOGGER.info("Message Log Level: %s", self.proxy.config.MESSAGE_LOG_LEVEL)
 
-        # Output config to debug
+        if (
+            self.proxy.config.WEBSOCKET_MODE
+            and not self.proxy.config.WEBSOCKET_AUTH_KEY
+        ):
+            _LOGGER.warning(
+                "Websocket server running without WEBSOCKET_AUTH_KEY; "
+                "configure an authentication key to protect alarm access."
+            )
+
+        # Output config to debug (with sensitive keys redacted)
         if self.proxy.config.LOG_LEVEL == logging.DEBUG:
             _LOGGER.debug("%s  FULL CONFIG  %s", "".rjust(20, "-"), "".rjust(20, "-"))
             configs = [
                 (attr, getattr(self.proxy.config, attr))
-                for attr in vars(self.proxy.config)
+                for attr in dir(self.proxy.config)
                 if not callable(getattr(self.proxy.config, attr))
                 and not attr.startswith("__")
             ]
-            for config in configs:
-                _LOGGER.debug("%s: %s", config[0], config[1])
+            for key, val in configs:
+                _LOGGER.debug("%s: %s", key, redact_config_value(key, val))
             _LOGGER.debug("%s", "".rjust(60, "-"))
 
         # Validate/generate SSL certificates

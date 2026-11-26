@@ -9,7 +9,7 @@ import datetime as dt
 import io
 import json
 import logging
-import os
+from pathlib import Path
 import re
 import time
 
@@ -156,9 +156,25 @@ class MyHandler:
                     headers.add(k, v)
                 return HttpResponse(res.status_code, headers, res.content)
 
-    async def decode_image(self, data: bytes):
-        """Decode image."""
-        image_json = {}
+    @staticmethod
+    def _sanitize_filename_part(value: object, default: str = "unknown") -> str:
+        """Restrict filename segments to safe characters to prevent path traversal."""
+        cleaned = re.sub(r"[^A-Za-z0-9_-]", "", str(value or ""))
+        return cleaned or default
+
+    @staticmethod
+    def _save_image_sync(data: bytes, target_path: Path) -> None:
+        """Decode and persist image bytes in a worker thread."""
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(io.BytesIO(data)) as im:
+            im.save(target_path)
+
+    async def decode_image(self, data: bytes, images_dir: str = "./images"):
+        """Decode camera PIR image safely without blocking the event loop."""
+        if not data:
+            return
+
+        image_json: dict[str, str | None] = {}
         keys = [
             "version",
             "serial",
@@ -177,34 +193,48 @@ class MyHandler:
             keystr = f"{key}: (.*?)\r\n"
             match = re.search(bytes(keystr, "ascii"), data)
             if match:
-                image_json[key] = match.group(1).decode("utf-8")
+                image_json[key] = match.group(1).decode("utf-8", errors="replace")
             else:
                 image_json[key] = None
 
+        frame_display: int | str = "unknown"
+        if image_json["frameNum"] is not None:
+            with contextlib.suppress(ValueError):
+                frame_display = int(image_json["frameNum"]) + 1
+
         _LOGGER.info(
             "RECEIVED CAMERA IMAGE %s of %s",
-            int(image_json["frameNum"]) + 1,
+            frame_display,
             image_json["filesCount"],
             extra=MsgLogLevel.L3,
         )
         _LOGGER.info("IMAGE INFO: %s", image_json, extra=MsgLogLevel.L5)
 
-        # Remove image bytes size at start of image data
-        data = data.split(b"\r\ndata: ")[1]
-        data = data.split(b"\r\n")[1]
-
-        im = Image.open(io.BytesIO(data))
+        # Extract binary image payload after the data header without truncating on \r\n
+        parts = data.split(b"\r\ndata: ", 1)
+        if len(parts) < 2:
+            _LOGGER.warning("Camera image payload missing data header")
+            return
+        payload_parts = parts[1].split(b"\r\n", 1)
+        if len(payload_parts) < 2:
+            _LOGGER.warning("Camera image payload missing body separator")
+            return
+        image_bytes = payload_parts[1]
 
         dt_now = dt.datetime.now().strftime("%Y%m%d%H%M%S")
-        filename = f"{image_json['serial']}_zone{image_json['camera']}_{image_json['frameNum']}_{dt_now}.jpg"
-        path = "./images"
+        serial = self._sanitize_filename_part(image_json["serial"], "panel")
+        camera = self._sanitize_filename_part(image_json["camera"], "0")
+        frame_num = self._sanitize_filename_part(image_json["frameNum"], "0")
+        filename = f"{serial}_zone{camera}_{frame_num}_{dt_now}.jpg"
 
-        # Verify cert directory exists and create if not
-        if not os.path.isdir(path):
-            os.mkdir(path)
+        base_dir = Path(images_dir).resolve()
+        target_path = (base_dir / filename).resolve()
+        if not target_path.is_relative_to(base_dir):
+            _LOGGER.warning("Rejected unsafe camera image path: %s", filename)
+            return
 
         try:
-            im.save(f"{path}/{filename}")
+            await asyncio.to_thread(self._save_image_sync, image_bytes, target_path)
 
             self.proxy.events.fire_event(
                 Event(
@@ -213,7 +243,7 @@ class MyHandler:
                     client_id=0,
                     event_data={
                         "image_info": image_json,
-                        "data": data,
+                        "data": image_bytes,
                     },
                 )
             )

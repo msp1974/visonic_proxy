@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from inspect import getfullargspec
 import json
@@ -30,7 +31,9 @@ from typing import TYPE_CHECKING
 from visonic_proxy.proxy import Proxy
 
 from .utils import (
+    HttpBadRequestError,
     HttpHeaders,
+    HttpPayloadTooLargeError,
     HttpRequest,
     HttpResponse,
     http_parser,
@@ -278,6 +281,18 @@ class HttpServer:
                 await self._send_response(writer, request, response)
             return
 
+        except HttpBadRequestError as e:
+            logger.warning("Malformed HTTP request: %s", e)
+            with contextlib.suppress(OSError):
+                await http_send_response(
+                    writer, None, HttpResponse(400), http_trace=False
+                )
+        except HttpPayloadTooLargeError as e:
+            logger.warning("Rejected oversized HTTP request: %s", e)
+            with contextlib.suppress(OSError):
+                await http_send_response(
+                    writer, None, HttpResponse(413), http_trace=False
+                )
         except (
             TimeoutError,
             asyncio.TimeoutError,
@@ -290,6 +305,8 @@ class HttpServer:
             )
         finally:
             writer.close()
+            with contextlib.suppress(OSError):
+                await writer.wait_closed()
 
     def build_http_404_response(self, _method: str, _path: str) -> HttpResponse:
         return HttpResponse(404)

@@ -37,7 +37,7 @@ schema:
   visonic_host: str
   websocket_mode: bool
   websocket_ssl: bool
-  websocket_auth_key: str
+  websocket_auth_key: password?
   message_log_level: "int(1,5)"
   log_level: list(debug|info|warning|error|critical)?
   

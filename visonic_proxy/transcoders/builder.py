@@ -217,7 +217,7 @@ class MessageBuilder:
         msg = ""
         if params:
             length = len(bytearray.fromhex(params))
-            msg += f"{cmd} {length:02} {params}"
+            msg += f"{cmd} {length:02x} {params}"
         else:
             msg += f"{cmd} 01 05"  # Some commands need 05 as param, others not but adding to all seems to work
 

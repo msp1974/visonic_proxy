@@ -41,7 +41,12 @@ class ConnectionInfo:
 class Proxy:
     """Proxy object."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, log_class: VPLogger):
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        log_class: VPLogger | None,
+        config: Config | None = None,
+    ):
         """Initialise."""
 
         self.loop = loop
@@ -50,7 +55,7 @@ class Proxy:
         self.account_id: str = None
         self.is_addon: bool = False
 
-        self.config = Config()
+        self.config = config if config is not None else Config()
         self.clients = Clients()
         self.events = Events(self.loop)
         self.invalid_commands: dict[str, int] = {}

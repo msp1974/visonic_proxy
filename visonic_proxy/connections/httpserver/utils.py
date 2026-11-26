@@ -111,7 +111,23 @@ def _parse_path(path):
     return path[:index], parse_qs(path[index + 1 :])
 
 
-async def http_parser(reader: asyncio.StreamReader, timeout: float, http_trace: bool = True) -> HttpRequest:
+MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5 MiB safety limit against OOM/DoS
+
+
+class HttpBadRequestError(Exception):
+    """Raised when an incoming HTTP request is malformed."""
+
+
+class HttpPayloadTooLargeError(Exception):
+    """Raised when an incoming HTTP request exceeds MAX_CONTENT_LENGTH."""
+
+
+async def http_parser(
+    reader: asyncio.StreamReader,
+    timeout: float,
+    http_trace: bool = True,
+    max_content_length: int = MAX_CONTENT_LENGTH,
+) -> HttpRequest | None:
     try:
         line = await asyncio.wait_for(reader.readuntil(b"\r\n"), timeout)
     except TimeoutError:
@@ -120,7 +136,9 @@ async def http_parser(reader: asyncio.StreamReader, timeout: float, http_trace: 
     if not line:
         return None
 
-    words = line.decode().split()
+    words = line.decode("latin-1").split()
+    if len(words) < 3:
+        raise HttpBadRequestError("Malformed HTTP request line")
 
     method, path, version = (words[0], words[1], words[2])
     path = _clean_path(path)
@@ -132,10 +150,26 @@ async def http_parser(reader: asyncio.StreamReader, timeout: float, http_trace: 
         if not line or line == b"\r\n":
             break
 
-        key, value = line.decode().split(": ", 1)
+        decoded_line = line.decode("latin-1")
+        if ":" not in decoded_line:
+            raise HttpBadRequestError("Malformed HTTP header line")
+        key, value = decoded_line.split(":", 1)
         headers.add(key.strip(), value.strip())
 
-    content_length = headers.get("content-length", -1, int)
+    raw_content_length = headers.get("content-length")
+    if raw_content_length is not None:
+        try:
+            content_length = int(raw_content_length)
+        except ValueError as ex:
+            raise HttpBadRequestError("Invalid Content-Length header") from ex
+        if content_length < 0:
+            raise HttpBadRequestError("Negative Content-Length header")
+        if content_length > max_content_length:
+            raise HttpPayloadTooLargeError(
+                f"Content-Length {content_length} exceeds limit {max_content_length}"
+            )
+    else:
+        content_length = -1
 
     if content_length > 0:
         body = await asyncio.wait_for(reader.readexactly(content_length), timeout)

@@ -34,7 +34,7 @@ class STDMessage:
 
     cmd: str
     start: int = 0
-    data: dict = field(default_factory={})
+    data: dict = field(default_factory=dict)
     raw_data: bytes | None = None
     verified: bool = False
 
