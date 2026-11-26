@@ -348,7 +348,7 @@ class VisonicClient:
                 )
                 if dec.msg_type == 3 and dec.page in (0, 255):
                     self.register_received_message(f"{dec.cmd}_{dec.setting}")
-            elif dec.cmd not in [B0CommandName.INVALID_COMMAND]:
+            elif dec.cmd != B0CommandName.INVALID_COMMAND:
                 data_changed = self.datastore.store(
                     STATUS,
                     dec.msg_type,

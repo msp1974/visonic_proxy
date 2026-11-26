@@ -38,8 +38,8 @@ class VisonicProxy:
     ):
         """Initialise."""
         self.loop = loop
-        self.logger: logging.Logger = None
-        self.proxy: Proxy = None
+        self.logger: logging.Logger | None = None
+        self.proxy: Proxy | None = None
         self.status: ManagerStatus
         self._task: asyncio.Task
 

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 import datetime as dt
-from enum import Enum, StrEnum
+from enum import Enum
 from functools import reduce
 from itertools import batched
 import logging
@@ -46,10 +46,11 @@ def chunk_array(data, size) -> list:
     return list(batched(data, size))
 
 
-def chunk_bytearray(data: bytearray, size: int) -> list[bytes]:
-    """Split bytearray into sized chunks."""
+def chunk_bytearray(data: bytes | bytearray, size: int) -> list[bytes]:
+    """Split bytes/bytearray into sized chunks."""
     if data:
-        return [data[i : i + size] for i in range(0, len(data), size)]
+        return [bytes(data[i : i + size]) for i in range(0, len(data), size)]
+    return []
 
 
 def bits_to_le_bytes(bits: int | list[int], bit_length: int) -> bytes:
@@ -67,18 +68,16 @@ def bits_to_le_bytes(bits: int | list[int], bit_length: int) -> bytes:
     return b"".join(int_list[::-1])  # reverse to make little endian
 
 
-def get_lookup_value(lookup_enum: Enum | StrEnum, value: Any) -> str | int:
+def get_lookup_value(lookup_enum: type[Enum], value: Any) -> str:
     """Get key from value for Enum."""
     try:
         return lookup_enum(value).name.lower()
     except ValueError:
-        # if isinstance(lookup_enum, Enum):
-        #    return None
         pass
     return TEXT_UNKNOWN
 
 
-def calculate_message_checksum(msg: bytearray) -> bytes:
+def calculate_message_checksum(msg: bytes | bytearray) -> bytes:
     """Calculate CRC Checksum."""
     checksum = 0
     for char in msg[0 : len(msg)]:
@@ -89,14 +88,14 @@ def calculate_message_checksum(msg: bytearray) -> bytes:
     return checksum.to_bytes(1, "big")
 
 
-def ip_formatter(data: bytes) -> int:
+def ip_formatter(data: str) -> dict[str, str] | str:
     """Decode dhcp info.
 
     string just needs seperating into 3 lots of 4 x 3 chars
     """
 
-    def make_ip(data: str):
-        return ".".join([str(int(i)) for i in wrap(data, 3)])
+    def make_ip(raw_ip: str) -> str:
+        return ".".join([str(int(i)) for i in wrap(raw_ip, 3)])
 
     items = wrap(data, 12)
 
@@ -126,11 +125,11 @@ def ints_to_datetime(data: list[int]) -> dt.datetime:
     )
 
 
-def decode_timestamp(data: bytes) -> dt.datetime:
+def decode_timestamp(data: bytes | bytearray) -> dt.datetime:
     """Convert hex timestamp to datetime."""
     ts = data[::-1]
     timestamp = reduce(lambda s, x: s * 256 + x, bytearray(ts))
-    return dt.datetime.fromtimestamp(timestamp, tz=dt.timezone.utc)
+    return dt.datetime.fromtimestamp(timestamp, tz=dt.UTC)
 
 
 def str_to_datetime(dtstring: str) -> dt.datetime:
@@ -138,14 +137,14 @@ def str_to_datetime(dtstring: str) -> dt.datetime:
     return dt.datetime.strptime(dtstring, "%Y-%m-%d %H:%M:%S")
 
 
-def str_datetime_diff(dtstring1: str, dtstring2: str) -> int:
+def str_datetime_diff(dtstring1: str, dtstring2: str) -> float:
     """Return absolute total seconds between 2 timestamps."""
     try:
         dt1 = str_to_datetime(dtstring1)
         dt2 = str_to_datetime(dtstring2)
         response = abs((dt1 - dt2).total_seconds())
     except TypeError:
-        response = 0
+        response = 0.0
     return response
 
 

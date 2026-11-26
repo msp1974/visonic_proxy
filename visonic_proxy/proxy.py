@@ -4,7 +4,7 @@ This is passed to all classes
 """
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import datetime as dt
 import logging
 from typing import Any
@@ -34,8 +34,8 @@ class ConnectionInfo:
     connection_priority: int = 1
     requires_ack: bool = True
     send_non_pl31_messages: bool = False
-    last_received: dt.datetime = None
-    last_sent: dt.datetime = None
+    last_received: dt.datetime | None = None
+    last_sent: dt.datetime | None = None
 
 
 class Proxy:
@@ -51,8 +51,8 @@ class Proxy:
 
         self.loop = loop
         self.log_class = log_class
-        self.panel_id: str = None
-        self.account_id: str = None
+        self.panel_id: str | None = None
+        self.account_id: str | None = None
         self.is_addon: bool = False
 
         self.config = config if config is not None else Config()
@@ -68,7 +68,9 @@ class MessageTracker:
     """Holds last message id and timestamp."""
 
     last_message_no: int = 0
-    last_message_timestamp: dt = dt.datetime.now()
+    last_message_timestamp: dt.datetime = field(
+        default_factory=lambda: dt.datetime.now(dt.UTC)
+    )
 
     def get_next_message_id(self) -> int:
         """Increment message id and return it."""
@@ -102,7 +104,7 @@ class Clients:
         client_id: int,
         connection: Any,
         connection_status: ConnectionStatus,
-        connection_priority: ConnectionPriority = 1,
+        connection_priority: int = 1,
         requires_ack: bool = True,
         send_non_pl31_messages: bool = False,
     ):
@@ -168,7 +170,7 @@ class Clients:
         except KeyError:
             return None
 
-    def get_clients(self, name: ConnectionName) -> list[ConnectionInfo] | None:
+    def get_clients(self, name: ConnectionName) -> list[ConnectionInfo]:
         """Get connection info for connected clients by connection name."""
         try:
             return list(self._clients[name].values())
@@ -195,7 +197,7 @@ class Clients:
     @property
     def connections(self) -> list[str]:
         """Get connection names of registered clients."""
-        return self._clients.keys()
+        return list(self._clients.keys())
 
     def count(self, name: ConnectionName) -> int:
         """Return count of clients by connection name."""

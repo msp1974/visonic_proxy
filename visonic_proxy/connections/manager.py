@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
+import contextlib
 import datetime as dt
 from enum import StrEnum
 import logging
@@ -45,10 +46,10 @@ class ConnectionManager:
 
         self.status: ConnectionCoordinatorStatus = ConnectionCoordinatorStatus.STOPPED
 
-        self.webserver: Webserver = None
-        self.webserver_task: asyncio.Task = None
-        self.watchdog_task: asyncio.Task = None
-        self.stealth_timeout_task: asyncio.Task = None
+        self.webserver: Webserver | None = None
+        self.webserver_task: asyncio.Task | None = None
+        self.watchdog_task: asyncio.Task | None = None
+        self.stealth_timeout_task: asyncio.Task | None = None
 
         self.servers: dict[str, ServerConnection] = {}
 
@@ -145,10 +146,8 @@ class ConnectionManager:
         # Cancel stealth timeout task
         if self.stealth_timeout_task and not self.stealth_timeout_task.done():
             self.stealth_timeout_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self.stealth_timeout_task
-            except asyncio.CancelledError:
-                pass
 
         self.status = ConnectionCoordinatorStatus.STOPPED
         _LOGGER.info("Connection Manager is stopped")

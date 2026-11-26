@@ -99,7 +99,7 @@ class FlowManager:
         self.message_router = MessageRouter(self.proxy)
         self.message_id_mapper = MessageIdMapper()
 
-        self.ack_awaiter: WaitingAck = None
+        self.ack_awaiter: WaitingAck | None = None
         self.active_alarm_owner: ConnectionName | None = None
         self.active_alarm_owner_until: float = 0.0
         self._rx_buffers: dict[tuple[ConnectionName, int | str], bytearray] = {}

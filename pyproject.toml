@@ -437,3 +437,7 @@ split-on-trailing-comma = false
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25
+
+[tool.ruff.lint.per-file-ignores]
+# Third-party Apache 2.0 embedded HTTP server
+"visonic_proxy/connections/httpserver/*" = ["D", "SLF001", "TRY300", "TRY401", "ASYNC230"]

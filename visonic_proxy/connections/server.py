@@ -58,11 +58,11 @@ class ServerConnection:
         self.run_watchdog = run_watchdog
         self.send_non_pl31_messages = send_non_pl31_messages
 
-        self.server: asyncio.Server = None
-        self.keep_alive_timer_task: asyncio.Task = None
-        self.watchdog: Watchdog = None
+        self.server: asyncio.Server | None = None
+        self.keep_alive_timer_task: asyncio.Task | None = None
+        self.watchdog: Watchdog | None = None
 
-        self.clients: dict[str, ClientConnection] = {}
+        self.clients: dict[int, ClientConnection] = {}
         self.disable_acks: bool = False
 
         self.unsubscribe_listeners: list[Callable] = []

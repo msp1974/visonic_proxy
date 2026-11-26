@@ -43,7 +43,7 @@ class MyHandler:
         self.request_connect = request_connect
 
     def _sync_forward_request(self, request: HttpRequest) -> requests.Response:
-        """Synchronously forward request (executed in worker thread)."""
+        """Forward request synchronously (executed in worker thread)."""
         with requests.Session() as session:
             return session.post(
                 f"https://{self.proxy.config.VISONIC_HOST}:{self.proxy.config.WEBSERVER_PORT}{request.path}",
@@ -143,7 +143,7 @@ class MyHandler:
                 return await self.send_man_response()
 
             return await self.send_man_response()
-        elif self.proxy.config.PROXY_MODE:
+        if self.proxy.config.PROXY_MODE:
             if res := await self.forward_request(request):
                 response = res.content
                 _LOGGER.info("RESPONSE: %s", response, extra=MsgLogLevel.L5)

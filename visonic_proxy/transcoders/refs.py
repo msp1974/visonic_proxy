@@ -324,7 +324,7 @@ class EPROMSetting(StrEnum):
     DISARM_ACTIVITY = "disarm_activity"
 
 
-EpromSettingInfo = collections.namedtuple("EpromSetting", "position length databits")
+EpromSettingInfo = collections.namedtuple("EpromSettingInfo", "position length databits")
 EPROMSettingLookup = {
     "alarm_led_pm10": EpromSettingInfo(49250, 64, 16),
     "alarm_led_pm30": EpromSettingInfo(49735, 64, 16),

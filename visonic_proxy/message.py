@@ -12,9 +12,9 @@ class RoutableMessage:
     """Routable message."""
 
     source: ConnectionName
-    source_client_id: str
-    destination: ConnectionName
-    destination_client_id: str
+    source_client_id: int | str
+    destination: ConnectionName | None
+    destination_client_id: int | str | None
     message: PowerLink31Message | NonPowerLink31Message
     origin_owner: ConnectionName | None = field(default=None, kw_only=True)
 
@@ -40,5 +40,5 @@ class QueuedReceivedMessage:
     """Queued received message."""
 
     source: ConnectionName
-    source_client_id: str
+    source_client_id: int | str
     data: bytes

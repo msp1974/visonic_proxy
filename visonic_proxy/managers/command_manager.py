@@ -3,9 +3,8 @@
 from collections.abc import Callable
 import logging
 
-from ..events import ALL_CLIENTS, Event, EventType
-
 from ..const import ConnectionName, Mode, MsgLogLevel
+from ..events import ALL_CLIENTS, Event, EventType
 from ..message import RoutableMessage
 from ..proxy import Proxy
 from ..transcoders.builder import MessageBuilder

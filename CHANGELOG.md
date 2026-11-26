@@ -20,7 +20,7 @@ All notable changes to this fork of `visonic_proxy` are documented in this file.
 - `Dockerfile` label `io.hass.version` aligned to `1.1.2`.
 - `helpers/env.py` loads `/data/options.json` with typed coercion (`bool`, `int`, `float`, `LOG_LEVEL`) without mutating `Config` class attributes, and redacts sensitive keys in logs.
 - `Watchdog` and `ServerConnection` keepalive timers migrated to `time.monotonic()`.
-- Updated Ruff configuration in `pyproject.toml` to remove obsolete rules (`S320`, `PT004`, `UP038`).
+- Updated Ruff configuration in `pyproject.toml` to remove obsolete rules (`S320`, `PT004`, `UP038`), resolved all Ruff findings across `visonic_proxy/`, and expanded CI to run global `ruff check visonic_proxy` plus `mypy` across 15 typed core modules.
 
 ### Fixed
 - **Security:** prevented path traversal and JPEG `\r\n` truncation in `Webserver.decode_image` (with non-blocking `asyncio.to_thread` saving), added a 5 MiB `Content-Length` limit (`413`) and malformed-request validation (`400`) in `httpserver`, switched WebSocket Bearer auth to `hmac.compare_digest`, and redacted sensitive settings/keys from logs.

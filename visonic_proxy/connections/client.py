@@ -41,13 +41,13 @@ class ClientConnection:
         self.run_watchdog = run_watchdog
         self.send_non_pl31_messages = send_non_pl31_messages
 
-        self.watchdog: Watchdog = None
+        self.watchdog: Watchdog | None = None
 
         self.last_received_message: dt.datetime = dt.datetime.now()
-        self.last_sent_message: dt.datetime = None
+        self.last_sent_message: dt.datetime | None = None
 
-        self.protocol = None
-        self.transport: asyncio.Transport = None
+        self.protocol: asyncio.BaseProtocol | None = None
+        self.transport: asyncio.Transport | None = None
         self.connected: bool = False
         self.connection_in_progress: bool = False
 

@@ -60,11 +60,11 @@ class WebsocketServer:
         self.proxy = proxy
         self.name = name
         self.host = host
-        self.port = port if port else self.proxy.config.WEBSOCKET_PORT
+        self.port = port or self.proxy.config.WEBSOCKET_PORT
         self.cb_received_data = data_received_callback
 
-        self.server_stop: asyncio.Future = None
-        self.server_task: asyncio.Task = None
+        self.server_stop: asyncio.Future | None = None
+        self.server_task: asyncio.Task | None = None
         self.send_processor_task: asyncio.Task | None = None
         self.websockets: dict[str, ServerConnection] = {}
 

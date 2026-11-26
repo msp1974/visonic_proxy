@@ -26,8 +26,8 @@ class Watchdog:
         self.inactive_period = inactive_period
         self._run_watchdog: bool = True
         self._last_activity_tracker: dict[int | str, float] = {}
-        self._task: asyncio.Task = None
-        self._watchdog_timer: asyncio.TimerHandle = None
+        self._task: asyncio.Task | None = None
+        self._watchdog_timer: asyncio.TimerHandle | None = None
         self._unsubscribe_listeners: list[Callable] = []
 
     def start(self):

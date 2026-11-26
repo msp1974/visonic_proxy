@@ -25,7 +25,7 @@ class ConnectionProtocol(asyncio.Protocol):
         self.cb_disconnection = cb_disconnection
         self.cb_data_received = cd_data_received
 
-        self.transport: asyncio.Transport = None
+        self.transport: asyncio.Transport | None = None
 
     def connection_made(self, transport):
         """Handle connection."""

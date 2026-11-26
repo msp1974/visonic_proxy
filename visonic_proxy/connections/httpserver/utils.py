@@ -17,11 +17,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-import os
 from collections.abc import Generator, KeysView
 from dataclasses import dataclass
 from http import HTTPStatus
+import logging
+import os
 from time import monotonic
 from urllib.parse import parse_qs
 
@@ -47,8 +47,8 @@ class HttpHeaders:
 
     def merge(self, other):
         if isinstance(other, HttpHeaders):
-            for k, l in other._headers.items():
-                self._headers.setdefault(k, []).extend(l)
+            for k, values in other._headers.items():
+                self._headers.setdefault(k, []).extend(values)
         else:
             for k, v in other.items():
                 hlist = self._headers.setdefault(k, [])
@@ -61,12 +61,12 @@ class HttpHeaders:
         return self._headers.keys()
 
     def items(self) -> Generator[tuple[str, str]]:
-        for k, l in self._headers.items():
-            for v in l:
+        for k, values in self._headers.items():
+            for v in values:
                 yield k, v
 
     def __len__(self) -> int:
-        return sum(len(l) for l in self._headers.values())
+        return sum(len(values) for values in self._headers.values())
 
     def __getitem__(self, key):
         return self._headers[key.lower()]
@@ -184,7 +184,7 @@ async def http_parser(
 
 async def http_send_response(writer: asyncio.StreamWriter, request: HttpRequest, response: HttpResponse, http_trace: bool = True) -> HttpRequest:
     http_status = HTTPStatus(response.status_code)
-    headers = response.headers if response.headers else HttpHeaders()
+    headers = response.headers or HttpHeaders()
 
     content_length = 0
     if response.body:
@@ -196,9 +196,9 @@ async def http_send_response(writer: asyncio.StreamWriter, request: HttpRequest,
     if http_trace:
         dump_http_response(request, response)
 
-    writer.write(f"HTTP/1.1 {http_status.value} {http_status.phrase}\r\n".encode("utf-8"))
+    writer.write(f"HTTP/1.1 {http_status.value} {http_status.phrase}\r\n".encode())
     for key, value in headers.items():
-        writer.write(f"{key}: {value}\r\n".encode("utf-8"))
+        writer.write(f"{key}: {value}\r\n".encode())
     writer.write(b"\r\n")
     if response.body:
         writer.write(response.body)

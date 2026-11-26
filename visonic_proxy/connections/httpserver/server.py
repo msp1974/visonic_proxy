@@ -65,8 +65,7 @@ class UriRoute:
         if isinstance(self.http_method, str):
             yield self.http_method
         else:
-            for m in self.http_method:
-                yield m
+            yield from self.http_method
 
     def match(self, http_method: str, path: str) -> bool:
         """Match method and path."""
@@ -97,10 +96,20 @@ def _convert_params(request: HttpRequest, route: UriRoute, method):
             args.append(request.headers)
         elif param_name == "uri_variables":
             uri_variables = (
-                dict(zip(route.uri_variables, re.findall(route.path, request.path)))
+                dict(
+                    zip(
+                        route.uri_variables,
+                        re.findall(route.path, request.path),
+                        strict=False,
+                    )
+                )
                 if len(route.uri_variables) == 1
                 else dict(
-                    zip(route.uri_variables, re.findall(route.path, request.path)[0])
+                    zip(
+                        route.uri_variables,
+                        re.findall(route.path, request.path)[0],
+                        strict=False,
+                    )
                 )
             )
             args.append(uri_variables)
@@ -301,7 +310,6 @@ class HttpServer:
                 )
         except (
             TimeoutError,
-            asyncio.TimeoutError,
             asyncio.exceptions.IncompleteReadError,
         ) as e:
             logger.warning("got a failure %s. disconnecting the client", type(e))

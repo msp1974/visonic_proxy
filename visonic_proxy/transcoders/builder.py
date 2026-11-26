@@ -72,11 +72,11 @@ class MessageBuilder:
 
     def build_eprom_rw_mode_message(self) -> str:
         """Build eprom rw mode message."""
-        return self.build_std_request("09")
+        return self.build_std_request(bytes.fromhex("09"))
 
     def build_exit_eprom_rw_mode(self) -> str:
         """Build exit eprom mode message."""
-        return self.build_std_request("0f")
+        return self.build_std_request(bytes.fromhex("0f"))
 
     def message_preprocessor(self, msg: bytes) -> NonPowerLink31Message:
         r"""Preprocessor for using injector to send message to alarm.
@@ -201,7 +201,7 @@ class MessageBuilder:
         msg += f" {checksum.hex()}"
         return f"0d {msg} 0a"
 
-    def _build_b0_generic_request(self, cmd: int, params: str = "") -> str:
+    def _build_b0_generic_request(self, cmd: str, params: str = "") -> str:
         """Build generic request.
 
         format is
@@ -349,12 +349,12 @@ class MessageBuilder:
 
         return PowerLink31Message(
             crc16=crc16,
-            length=msg_length,
+            length=msg_length.hex(),
             msg_type=msg_type,
             msg_id=msg_id,
-            account_id=effective_account_id,
-            panel_id=effective_panel_id,
+            account_id=effective_account_id or "0",
+            panel_id=effective_panel_id or "0",
             message_class=effective_message_class,
-            data=raw_payload,
-            raw_data=msg,
+            data=bytes(raw_payload),
+            raw_data=bytes(msg),
         )

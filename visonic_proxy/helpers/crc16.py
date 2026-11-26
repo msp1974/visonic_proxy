@@ -296,7 +296,7 @@ class Crc16Arc:
             value (int): value to reflect
 
         """
-        binstr = ("0" * width + bin(value)[2:])[-width:]
+        binstr = ("0" * width + f"{value:b}")[-width:]
         return int(binstr[::-1], 2)
 
     def process(self, data):

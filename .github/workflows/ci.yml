@@ -33,22 +33,24 @@ jobs:
       - name: Run unit test suite
         run: python -m unittest discover -s tests -v
 
-      - name: Run Ruff on hardened modules
-        run: |
-          python -m ruff check \
-            visonic_proxy/events.py \
-            visonic_proxy/helpers/env.py \
-            visonic_proxy/helpers/ssl.py \
-            visonic_proxy/logger.py \
-            visonic_proxy/managers/flow_manager.py \
-            visonic_proxy/managers/message_id_mapper.py \
-            visonic_proxy/managers/storage_manager.py \
-            visonic_proxy/connections/watchdog.py \
-            visonic_proxy/run.py
+      - name: Run Ruff across entire package
+        run: python -m ruff check visonic_proxy
 
       - name: Run MyPy on typed modules
         run: |
           python -m mypy --ignore-missing-imports \
+            visonic_proxy/const.py \
+            visonic_proxy/events.py \
+            visonic_proxy/logger.py \
+            visonic_proxy/message.py \
+            visonic_proxy/proxy.py \
             visonic_proxy/helpers/env.py \
             visonic_proxy/helpers/ssl.py \
-            visonic_proxy/managers/message_id_mapper.py
+            visonic_proxy/helpers/crc16.py \
+            visonic_proxy/connections/protocol.py \
+            visonic_proxy/managers/command_manager.py \
+            visonic_proxy/managers/message_filter.py \
+            visonic_proxy/managers/message_id_mapper.py \
+            visonic_proxy/transcoders/b0_basic_decoder.py \
+            visonic_proxy/transcoders/helpers.py \
+            visonic_proxy/transcoders/pl31_decoder.py
