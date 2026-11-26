@@ -8,8 +8,6 @@ arch:
   - aarch64
   - amd64
   - armv7
-  - armhf
-  - i386
 startup: services
 host_network: false
 ports:
@@ -24,7 +22,6 @@ ports_description:
   8443/tcp: Alarm web connection
 map:
   - addon_config:rw
-legacy: true
 options:
   visonic_host: "52.58.105.181"
   websocket_mode: true

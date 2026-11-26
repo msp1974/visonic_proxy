@@ -19,20 +19,26 @@ class DataStore:
 
     def __init__(self):
         """Initialise."""
-        self._data: dict[str, dict | str] = {}
-        self._raw_data: dict[str, dict | str] = {}
-        self._raw_eprom_data: list[int] = [None] * 65535
+        self._data: dict[str, Any] = {}
+        self._raw_data: dict[str, Any] = {}
+        self._raw_eprom_data: list[str | None] = [None] * 65536
 
-    def _combine_dict(self, d1: dict, d2: dict):
-        d = d1
-        for key in list(d2.keys()):
+    def _combine_dict(self, d1: dict, d2: dict) -> dict:
+        d = dict(d1)
+        for key, value in d2.items():
             if key in d:
-                if isinstance(d2[key], list):
-                    d[key].extend(d2[key])
+                if isinstance(d[key], list) and isinstance(value, list):
+                    d[key] = [*d[key], *value]
+                elif isinstance(d[key], dict) and isinstance(value, dict):
+                    d[key] = {**d[key], **value}
                 else:
-                    d[key].update(d2[key])
+                    d[key] = value
+            elif isinstance(value, list):
+                d[key] = list(value)
+            elif isinstance(value, dict):
+                d[key] = dict(value)
             else:
-                d[key] = d2[key]
+                d[key] = value
 
         return d
 
@@ -82,11 +88,9 @@ class DataStore:
 
             self._data[EPROM][setting][page] = data
 
-            # Store to raw eprom
+            # Store to raw eprom (bounds-checked)
             pos = (setting * 255) + page
-            eprom_data = data.split(" ")
-            for idx, e in enumerate(eprom_data):
-                self._raw_eprom_data[pos + idx] = e
+            self.store_eprom(pos, data)
 
         else:
             if not self._data.get(msg_class):
@@ -100,12 +104,15 @@ class DataStore:
         return has_changed
 
     def store_eprom(self, position: int, data: str):
-        """Store eprom data in raw data store."""
-        # Store to raw eprom
-        # _LOGGER.info("EPROM STORE: POSITION: %s", position)
+        """Store eprom data in raw data store with bounds checking."""
+        if position < 0 or not isinstance(data, str):
+            return
         eprom_data = data.split(" ")
+        max_len = len(self._raw_eprom_data)
         for idx, e in enumerate(eprom_data):
-            self._raw_eprom_data[position + idx] = e
+            target = position + idx
+            if target < max_len:
+                self._raw_eprom_data[target] = e
 
     def _store_status(self, msg_type: int, cmd: str, page: int, data: Any):
         """Store status data."""
@@ -115,40 +122,32 @@ class DataStore:
             self._data[STATUS] = {}
 
         command_name = f"{cmd}_{get_lookup_value(B0CommandName, cmd)}"
-        if not self._data[STATUS].get(command_name):
+        if command_name not in self._data[STATUS]:
             self._data[STATUS][command_name] = {}
 
         if page == 0:
             self._data[STATUS][command_name] = data
         elif msg_type == MessageType.PAGED_RESPONSE:
-            if page == 1:
-                # First page, clear any paged data
+            current = self._data[STATUS].get(command_name)
+            if page == 1 or not isinstance(current, dict) or "pages" not in current:
+                # First page or non-paged prior entry: start clean paged container
                 self._data[STATUS][command_name] = {"pages": {}}
 
-            if not self._data[STATUS][command_name].get("pages"):
-                self._data[STATUS][command_name]["pages"] = {}
-
+            pages = self._data[STATUS][command_name]["pages"]
             # Sometimes page number is wrong
             if page == 255:
-                page = (
-                    1
-                    if not self._data[STATUS][command_name]["pages"]
-                    else max(self._data[STATUS][command_name]["pages"].keys()) + 1
-                )
+                page = 1 if not pages else max(pages.keys()) + 1
 
-            self._data[STATUS][command_name]["pages"][page] = data
+            pages[page] = data
         elif msg_type == MessageType.RESPONSE:
             # If pre-existing paged data
-            if isinstance(self._data[STATUS][command_name], dict) and self._data[
-                STATUS
-            ][command_name].get("pages"):
+            current = self._data[STATUS].get(command_name)
+            if isinstance(current, dict) and current.get("pages"):
                 # Add last page to pages
-                self._data[STATUS][command_name]["pages"][page] = data
+                current["pages"][page] = data
 
                 # Rebuild data
-                self._data[STATUS][command_name] = self._rebuild_pages(
-                    self._data[STATUS][command_name]["pages"]
-                )
+                self._data[STATUS][command_name] = self._rebuild_pages(current["pages"])
 
             else:
                 self._data[STATUS][command_name] = data
@@ -167,41 +166,24 @@ class DataStore:
 
         setting_name = f"{setting}_{get_lookup_value(Command35Settings, setting)}"
 
-        if not self._data[key].get(setting_name):
+        if setting_name not in self._data[key]:
             self._data[key][setting_name] = {}
 
         if msg_type == MessageType.PAGED_RESPONSE:
-            # Sometimes page number is wrong
-            if isinstance(self._data[key][setting_name], dict) and not self._data[key][
-                setting_name
-            ].get("pages"):
-                self._data[key][setting_name]["pages"] = {}
+            current = self._data[key].get(setting_name)
+            if page == 1 or not isinstance(current, dict) or "pages" not in current:
+                self._data[key][setting_name] = {"pages": {}}
 
+            pages = self._data[key][setting_name]["pages"]
             if page == 255:
-                page = (
-                    1
-                    if not self._data[key][setting_name]["pages"]
-                    else max(self._data[key][setting_name]["pages"].keys()) + 1
-                )
+                page = 1 if not pages else max(pages.keys()) + 1
 
-            if page == 1:
-                # First page, clear any paged data
-                self._data[key][setting_name] = {}
-                self._data[key][setting_name]["pages"] = {}
-            self._data[key][setting_name]["pages"][page] = data
+            pages[page] = data
         elif msg_type == MessageType.RESPONSE:
-            # If pre-existing paged data
-            if isinstance(self._data[key][setting_name], dict) and self._data[key][
-                setting_name
-            ].get("pages"):
-                # Add last page to pages
-                self._data[key][setting_name]["pages"][page] = data
-
-                # Rebuild data
-                self._data[key][setting_name] = self._rebuild_pages(
-                    self._data[key][setting_name]["pages"]
-                )
-
+            current = self._data[key].get(setting_name)
+            if isinstance(current, dict) and current.get("pages"):
+                current["pages"][page] = data
+                self._data[key][setting_name] = self._rebuild_pages(current["pages"])
             else:
                 self._data[key][setting_name] = data
 
@@ -272,6 +254,7 @@ class DataStore:
                 return True
         except KeyError:
             return False
+        return False
 
     def get_all_data(self, raw_data: bool = False) -> dict:
         """Get all stored data."""

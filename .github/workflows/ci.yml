@@ -1,0 +1,54 @@
+name: "CI"
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+
+jobs:
+  quality:
+    name: Tests & Static Analysis (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies and linters
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt ruff mypy
+
+      - name: Run unit test suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Run Ruff on hardened modules
+        run: |
+          python -m ruff check \
+            visonic_proxy/events.py \
+            visonic_proxy/helpers/env.py \
+            visonic_proxy/helpers/ssl.py \
+            visonic_proxy/logger.py \
+            visonic_proxy/managers/flow_manager.py \
+            visonic_proxy/managers/message_id_mapper.py \
+            visonic_proxy/managers/storage_manager.py \
+            visonic_proxy/connections/watchdog.py \
+            visonic_proxy/run.py
+
+      - name: Run MyPy on typed modules
+        run: |
+          python -m mypy --ignore-missing-imports \
+            visonic_proxy/helpers/env.py \
+            visonic_proxy/helpers/ssl.py \
+            visonic_proxy/managers/message_id_mapper.py

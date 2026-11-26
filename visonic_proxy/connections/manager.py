@@ -53,6 +53,7 @@ class ConnectionManager:
         self.servers: dict[str, ServerConnection] = {}
 
         self.unsubscribe_events: list[Callable] = []
+        self._background_tasks: set[asyncio.Task] = set()
 
         self.initial_startup: bool = True
         self.connect_visonic: bool = self.proxy.config.PROXY_MODE
@@ -124,17 +125,18 @@ class ConnectionManager:
         await self.flow_manager.stop()
 
         # Stop webserver
-        _LOGGER.debug("Stopping HTTP server")
-        await self.webserver.stop()
+        if self.webserver:
+            _LOGGER.debug("Stopping HTTP server")
+            await self.webserver.stop()
 
         # Stop clients
-        for connection in self.proxy.clients.connections:
-            for client in self.proxy.clients.get_clients(connection):
-                connection: ClientConnection | ServerConnection = client.connection
-                if isinstance(connection, ClientConnection):
-                    await connection.shutdown()
+        for conn_name in list(self.proxy.clients.connections):
+            for client in self.proxy.clients.get_clients(conn_name):
+                conn_obj: ClientConnection | ServerConnection = client.connection
+                if isinstance(conn_obj, ClientConnection):
+                    await conn_obj.shutdown()
                 else:
-                    connection.disconnect_client(client.id)
+                    conn_obj.disconnect_client(client.id)
 
         # Stop connection servers
         for server in self.servers.values():
@@ -143,6 +145,10 @@ class ConnectionManager:
         # Cancel stealth timeout task
         if self.stealth_timeout_task and not self.stealth_timeout_task.done():
             self.stealth_timeout_task.cancel()
+            try:
+                await self.stealth_timeout_task
+            except asyncio.CancelledError:
+                pass
 
         self.status = ConnectionCoordinatorStatus.STOPPED
         _LOGGER.info("Connection Manager is stopped")
@@ -235,7 +241,11 @@ class ConnectionManager:
             send_non_pl31_messages=False,
         )
 
-        self.proxy.loop.create_task(client.connect())
+        task = self.proxy.loop.create_task(
+            client.connect(), name=f"Connect Visonic {client_id}"
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def stop_client_connection(self, client_id: int):
         """Terminate a client connection."""
@@ -426,7 +436,7 @@ class ConnectionManager:
         # Send status message to Alarm Monitor
         if (
             self.proxy.config.SEND_E0_MESSAGES
-            and self.proxy.clients.count(ConnectionName.ALARM) > 0
+            and self.proxy.clients.count(ConnectionName.ALARM_MONITOR) > 0
         ):
             await self.flow_manager.message_router.command_manager.send_status_message()
 

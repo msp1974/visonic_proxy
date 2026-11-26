@@ -4,11 +4,8 @@
 > Original copyright and license notices (MIT as declared in `setup.py`; Apache License 2.0 in `build.yaml` and `visonic_proxy/connections/httpserver/`) are preserved.
 >
 > **Summary of modifications in this fork:**
-> - Improved concurrency when the Visonic mobile app (PowerManage) and Home Assistant access the alarm simultaneously (channel transaction arbitration, response isolation, independent `msg_id` sequence translation with CRC16 recalculation).
-> - Non-blocking HTTPS `/scripts/update.php` forwarding and filtering of duplicate `connect` commands when the panel is already connected.
-> - Hardened add-on configuration loading (`/data/options.json` + typed env coercion, `run.sh` option exports with `exec`, `password?` schema for `websocket_auth_key`, and log redaction for secrets/codes).
-> - Security and protocol stability fixes: path-traversal sanitization and non-blocking JPEG handling in `decode_image`, `Content-Length` limit (5 MiB) and malformed-request handling in the embedded HTTP server, constant-time Bearer token check (`hmac.compare_digest`), per-connection TCP PowerLink 3.1 frame reassembly, `asyncio` queue/connection timeout and deadlock hardening, and fixes in `B0Decoder`, `MessageBuilder`, `set_pgm`, and `get_device_info`.
-> - Hardened locks, state flags, and `DataStore` paged-response handling, plus an automated `unittest` suite (`python -m unittest discover -s tests -v`) and updated Ruff rules in `pyproject.toml`.
+> - Improved concurrency between the Visonic mobile app (PowerManage) and Home Assistant, hardened add-on configuration/security/asyncio stability, modularized WebSocket client code, and added automated tests + CI.
+> - See [CHANGELOG.md](CHANGELOG.md) for the full list of changes.
 
 A proxy for Visonic Alarms to allow panels with Powerlink 3.1 modules to be able to work with HomeAssistant and the Visonic apps at the same time.
 

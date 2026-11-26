@@ -66,8 +66,8 @@ class Config:
     ACTION_COMMAND = "e1"  # Message type for action commands
 
     FILTER_STD_COMMANDS = ["0b"]  # Std messages from Monitor of these types are dropped
-    FILTER_B0_COMMANDS = []  # B0 messages from Monitor of these types are dropped
-    NO_WAIT_FOR_ACK_MESSAGES = []  # These messages will not wait for ACKs
+    FILTER_B0_COMMANDS: list[str] = []  # B0 messages from Monitor of these types are dropped
+    NO_WAIT_FOR_ACK_MESSAGES: list[str] = []  # These messages will not wait for ACKs
     SEND_KEEPALIVE_ON_VISONIC_DISCONNECT_REQUEST = False
 
     INVALID_MESSAGE_THRESHOLD = (

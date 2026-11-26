@@ -88,7 +88,7 @@ class VPLogger:
         self.message_filter = MessageLevelFilter(self.message_log_level)
 
         # Init logger
-        handlers = []
+        handlers: list[logging.Handler] = []
 
         # File handler
         if self.log_file:

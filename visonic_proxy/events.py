@@ -1,13 +1,13 @@
 """Handles system event bus."""
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 import inspect
 import logging
 import traceback
-from typing import Callable
 
 from visonic_proxy.const import LOGGER_NAME, ConnectionName
 
@@ -38,11 +38,11 @@ class Event:
     """Class to hold event."""
 
     name: ConnectionName
-    event_type: int
-    client_id: str | None = None
-    event_data: str | dict | None = None
-    destination: str = None
-    destination_client_id: str = None
+    event_type: EventType | str
+    client_id: int | str | None = None
+    event_data: str | dict | object | None = None
+    destination: ConnectionName | str | None = None
+    destination_client_id: int | str | None = None
 
 
 class Events:
@@ -52,9 +52,10 @@ class Events:
         """Initialise."""
         self._loop = loop
         self.listeners: dict[str, list[Callable]] = {}
+        self._background_tasks: set[asyncio.Task] = set()
 
     def subscribe(
-        self, name: str, event_type: EventType, callback: Callable
+        self, name: str, event_type: EventType | str, callback: Callable
     ) -> Callable:
         """Subscribe to events.
 
@@ -70,43 +71,44 @@ class Events:
     def _unsubscribe(self, event_id: str, callback: Callable):
         """Unsubscribe to events."""
         if event_id in self.listeners:
-            for idx, cb in enumerate(self.listeners[event_id]):
-                if cb == callback:
-                    self.listeners[event_id].pop(idx)
-
-            # Remove key if not more targets
-            if len(self.listeners[event_id]) == 0:
+            remaining = [cb for cb in self.listeners[event_id] if cb != callback]
+            if remaining:
+                self.listeners[event_id] = remaining
+            else:
                 del self.listeners[event_id]
 
-    def fire_event_later(self, delay: int, event: Event) -> asyncio.TimerHandle:
+    def fire_event_later(self, delay: float, event: Event) -> asyncio.TimerHandle:
         """Fire event after specified time delay in seconds."""
         return self._loop.call_later(delay, self.fire_event, event)
 
-    async def _async_fire_event(self, event: Event):
-        """Notify event to all listeners."""
+    async def _async_fire_event(self, event: Event) -> bool:
+        """Notify event to all listeners without letting one failure block others."""
         event_ids = [f"all__{event.event_type}", f"{event.name}__{event.event_type}"]
+        had_error = False
 
         for event_id in event_ids:
-            if event_id in self.listeners:
+            callbacks = list(self.listeners.get(event_id, ()))
+            for callback in callbacks:
                 try:
-                    for callback in self.listeners[event_id]:
-                        _LOGGER.debug("Firing Event: %s - %s", event_id, callback)
-                        _LOGGER.debug("Event: %s", event)
-                        if inspect.iscoroutinefunction(callback):
-                            await callback(event)
-                        else:
-                            callback(event)
+                    _LOGGER.debug("Firing Event: %s - %s", event_id, callback)
+                    _LOGGER.debug("Event: %s", event)
+                    if inspect.iscoroutinefunction(callback):
+                        await callback(event)
+                    else:
+                        callback(event)
                 except Exception as ex:  # noqa: BLE001
-                    _LOGGER.error("Error dispatching event.  Error is %s", ex)
+                    had_error = True
+                    _LOGGER.error("Error dispatching event %s: %s", event_id, ex)
                     _LOGGER.error(traceback.format_exc())
-                    return False
-        return True
+        return not had_error
 
-    def fire_event(self, event: Event):
+    def fire_event(self, event: Event) -> bool:
         """Notify event to all listeners."""
-        self._loop.create_task(  # noqa: RUF006
+        task = self._loop.create_task(
             self._async_fire_event(event), name=f"Fire Event - {event.event_type}"
         )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
         return True
 
     async def async_fire_event(self, event: Event):

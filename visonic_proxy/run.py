@@ -10,24 +10,20 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 # ruff: noqa: E402
 import asyncio
+import contextlib
 import logging
+import signal
 
 from visonic_proxy import __VERSION__
 from visonic_proxy.connections.manager import ConnectionManager
-from visonic_proxy.const import (
-    LOGGER_NAME,
-    ConnectionName,
-    ManagerStatus,
-    MsgLogLevel,
-)
+from visonic_proxy.const import LOGGER_NAME, ConnectionName, ManagerStatus, MsgLogLevel
 from visonic_proxy.helpers.env import (
     is_running_as_addon,
     process_env_vars,
     redact_config_value,
 )
-from visonic_proxy.helpers.ssl import validate_ssl_certificates
+from visonic_proxy.helpers.ssl import get_ssl_certs_path, validate_ssl_certificates
 from visonic_proxy.logger import VPLogger
-from visonic_proxy.managers.message_router import MessageCoordinatorStatus
 from visonic_proxy.proxy import Proxy
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
@@ -101,8 +97,12 @@ class VisonicProxy:
                 _LOGGER.debug("%s: %s", key, redact_config_value(key, val))
             _LOGGER.debug("%s", "".rjust(60, "-"))
 
-        # Validate/generate SSL certificates
-        certs_full_path = f"{os.path.dirname(os.path.realpath(__file__))}/{self.proxy.config.SSL_CERT_PATH}"
+        # Validate/generate SSL certificates (persistent /data/certs in add-on mode)
+        certs_full_path = get_ssl_certs_path(
+            self.proxy.config.SSL_CERT_PATH,
+            is_addon=self.proxy.is_addon,
+            base_dir=os.path.dirname(os.path.realpath(__file__)),
+        )
         validate_ssl_certificates(certs_full_path)
 
         # Start connection servers
@@ -113,7 +113,7 @@ class VisonicProxy:
         if self.connection_manager.status == ManagerStatus.RUNNING:
             _LOGGER.info("Proxy Server is running")
 
-        while self.connection_manager.status != MessageCoordinatorStatus.STOPPED:
+        while self.connection_manager.status != ManagerStatus.STOPPED:
             await asyncio.sleep(10)
             _LOGGER.debug("TASKS: %s", [t.get_name() for t in asyncio.all_tasks()])
 
@@ -148,19 +148,39 @@ class VisonicProxy:
 
     async def stop(self):
         """Stop."""
-        await self.connection_manager.stop()
+        if getattr(self, "connection_manager", None):
+            await self.connection_manager.stop()
         _LOGGER.info("Proxy Server is stopped")
 
 
-if __name__ == "__main__":
+def _main() -> None:
+    """Run VisonicProxy with graceful SIGINT/SIGTERM handling."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     vp = VisonicProxy(loop)
     task = loop.create_task(vp.start(), name="ProxyRunner")
+
+    def _request_shutdown(sig_name: str) -> None:
+        _LOGGER.info("Received %s. Shutting down gracefully...", sig_name)
+        if not task.done():
+            task.cancel()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        with contextlib.suppress(NotImplementedError):
+            loop.add_signal_handler(sig, _request_shutdown, sig.name)
+
     try:
         loop.run_until_complete(task)
-    except KeyboardInterrupt:
-        _LOGGER.info("Keyboard interrupted. Exit.")
-        task.cancel()
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        _LOGGER.info("Shutdown requested. Stopping Proxy Server...")
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                loop.run_until_complete(task)
+    finally:
         loop.run_until_complete(vp.stop())
-    loop.close()
+        loop.close()
+
+
+if __name__ == "__main__":
+    _main()

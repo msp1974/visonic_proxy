@@ -3,8 +3,8 @@
 import asyncio
 from collections.abc import Callable
 import contextlib
-import datetime as dt
 import logging
+import time
 
 from ..const import LOGGER_NAME, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
@@ -25,7 +25,7 @@ class Watchdog:
         self.name = name
         self.inactive_period = inactive_period
         self._run_watchdog: bool = True
-        self._last_activity_tracker: dict[str, dt.datetime] = {}
+        self._last_activity_tracker: dict[int | str, float] = {}
         self._task: asyncio.Task = None
         self._watchdog_timer: asyncio.TimerHandle = None
         self._unsubscribe_listeners: list[Callable] = []
@@ -70,25 +70,21 @@ class Watchdog:
 
     async def notify_activity(self, event: Event):
         """Update last activity."""
-        self._last_activity_tracker[event.client_id] = dt.datetime.now()
+        self._last_activity_tracker[event.client_id] = time.monotonic()
 
     def remove_client(self, event: Event):
         """Remove client id from watchdog list."""
-        if self._last_activity_tracker.get(event.client_id):
-            del self._last_activity_tracker[event.client_id]
+        self._last_activity_tracker.pop(event.client_id, None)
 
     def _runner(self):
         """Check for old connections and disconnect."""
         _LOGGER.debug("Running %s Watchdog", self.name)
         if self._last_activity_tracker:
+            now = time.monotonic()
             clients_to_disconnect = [
                 client_id
-                for client_id, last_activity in self._last_activity_tracker.items()
-                if (
-                    last_activity
-                    and (dt.datetime.now() - last_activity).total_seconds()
-                    > self.inactive_period
-                )
+                for client_id, last_activity in list(self._last_activity_tracker.items())
+                if last_activity and (now - last_activity) > self.inactive_period
             ]
             for client_id in clients_to_disconnect:
                 _LOGGER.info(

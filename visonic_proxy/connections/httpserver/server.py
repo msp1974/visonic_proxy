@@ -28,6 +28,7 @@ from ssl import PROTOCOL_TLS_SERVER, SSLContext
 import types
 from typing import TYPE_CHECKING
 
+from visonic_proxy.helpers.ssl import get_ssl_certs_path
 from visonic_proxy.proxy import Proxy
 
 from .utils import (
@@ -228,10 +229,15 @@ class HttpServer:
         dir_path = os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         )
+        certs_path = get_ssl_certs_path(
+            self.proxy.config.SSL_CERT_PATH,
+            is_addon=self.proxy.is_addon,
+            base_dir=dir_path,
+        )
         ssl_context = SSLContext(PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(
-            dir_path + f"/{self.proxy.config.SSL_CERT_PATH}/cert.pem",
-            dir_path + f"/{self.proxy.config.SSL_CERT_PATH}/private.key",
+            f"{certs_path}/cert.pem",
+            f"{certs_path}/private.key",
         )
 
         self._server = await asyncio.start_server(

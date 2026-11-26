@@ -7,6 +7,7 @@ import datetime as dt
 import itertools
 import logging
 from socket import AF_INET
+import time
 
 from ..const import LOGGER_NAME, VIS_ACK, ConnectionName, MsgLogLevel
 from ..events import Event, EventType
@@ -26,6 +27,8 @@ class ClientConnection:
     transport: asyncio.Transport
     last_received_message: dt.datetime = None
     hold_sending: bool = False
+    ip: str = ""
+    last_received_monotonic: float = 0.0
 
 
 class ServerConnection:
@@ -79,12 +82,16 @@ class ServerConnection:
         """Get port client has connected on."""
         return int(transport.get_extra_info("peername")[1])
 
-    def get_client_id(self, transport: asyncio.Transport) -> str:
-        """Generate client_id."""
-        port = self.get_client_port(transport)
+    def get_client_id(self, transport: asyncio.Transport) -> int | None:
+        """Find client_id matching transport peer (ip, port)."""
+        peer = transport.get_extra_info("peername")
+        if not peer:
+            return None
+        ip, port = peer[0], int(peer[1])
         for client_id, connection in self.clients.items():
-            if connection.port == port:
+            if connection.port == port and (not connection.ip or connection.ip == ip):
                 return client_id
+        return None
 
     def get_first_client_id(self):
         """Get first connected client id."""
@@ -101,6 +108,7 @@ class ServerConnection:
                     self.client_disconnected,
                     self.data_received,
                 ),
+                host=self.host,
                 port=self.port,
                 family=AF_INET,
             )
@@ -134,10 +142,15 @@ class ServerConnection:
         """Handle connection callback."""
 
         # Add client to clients tracker
+        client_ip = self.get_client_ip(transport)
         client_port = self.get_client_port(transport)
         client_id = next(self.id_iter) + 1
         self.clients[client_id] = ClientConnection(
-            client_port, transport, dt.datetime.now()
+            client_port,
+            transport,
+            dt.datetime.now(),
+            ip=client_ip,
+            last_received_monotonic=time.monotonic(),
         )
 
         _LOGGER.info(
@@ -180,7 +193,9 @@ class ServerConnection:
         _LOGGER.debug("Received Data: %s %s - %s", self.name, client_id, data)
 
         # Update client last received
-        self.clients[client_id].last_received_message = dt.datetime.now()
+        if client_id in self.clients:
+            self.clients[client_id].last_received_message = dt.datetime.now()
+            self.clients[client_id].last_received_monotonic = time.monotonic()
 
         if self.cb_data_received:
             self.cb_data_received(self.name, client_id, data)
@@ -302,7 +317,7 @@ class ServerConnection:
         if self.watchdog:
             await self.watchdog.stop()
 
-        for client_id in self.clients:
+        for client_id in list(self.clients.keys()):
             _LOGGER.info(
                 "Disconnecting from %s %s", self.name, client_id, extra=MsgLogLevel.L1
             )
@@ -322,13 +337,11 @@ class ServerConnection:
         while True:
             await asyncio.sleep(5)
             if self.proxy.status.disconnected_mode:
-                clients = self.clients.items()
-                for client_id, client in clients:
+                now = time.monotonic()
+                for client_id, client in list(self.clients.items()):
                     if (
-                        client.last_received_message
-                        and (
-                            dt.datetime.now() - client.last_received_message
-                        ).total_seconds()
+                        client.last_received_monotonic
+                        and (now - client.last_received_monotonic)
                         > self.proxy.config.KEEPALIVE_TIMER
                     ):
                         _LOGGER.debug("Firing KeepAlive timeout event")
