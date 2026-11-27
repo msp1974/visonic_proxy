@@ -2,6 +2,13 @@
 
 All notable changes to this fork of `visonic_proxy` are documented in this file.
 
+## [1.3.1] - 2026-11-27
+
+### Fixed
+- Send graceful PowerLink 3.1 `DISCONNECT_MESSAGE` to connected alarm panels on `ConnectionManager.stop()` so the panel resumes HTTPS polling and reconnects automatically after an add-on restart.
+- Cap upstream PowerManage `ka_time` to `10` s in `/scripts/update.php` responses and strip mismatched `Content-Encoding` / `Transfer-Encoding` / `Connection` headers when forwarding or rewriting HTTPS responses.
+- Emit uppercase hexadecimal `length` in `MessageBuilder.build_powerlink31_message` to match native PowerLink 3.1 wire frames.
+
 ## [1.3.0] - 2026-11-27
 
 ### Added

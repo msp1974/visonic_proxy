@@ -336,7 +336,7 @@ class MessageBuilder:
         msg = bytearray()
         msg.extend(map(ord, msg_initiator))
         msg.extend(map(ord, crc16.upper()))
-        msg.extend(map(ord, msg_length.hex()))
+        msg.extend(map(ord, msg_length.hex().upper()))
         msg.extend(base_msg)
         msg.extend(map(ord, msg_terminator))
 

@@ -152,6 +152,41 @@ class TestManagerServerWatchdogP1(unittest.IsolatedAsyncioTestCase):
         cm.flow_manager.stop = AsyncMock()
         await cm.stop()
 
+    async def test_manager_stop_sends_graceful_disconnect_message_to_alarm(self):
+        """ConnectionManager.stop() must send DISCONNECT_MESSAGE to connected ALARM panels."""
+        from visonic_proxy.const import ManagedMessages
+
+        loop = asyncio.get_running_loop()
+        proxy = Proxy(loop, None)
+        proxy.panel_id = "2A4CC3"
+        proxy.account_id = "001234"
+        cm = ConnectionManager(proxy)
+        cm.webserver = None
+        cm.flow_manager.stop = AsyncMock()
+
+        alarm_conn = MagicMock()
+        alarm_conn.send_message = AsyncMock(return_value=True)
+        alarm_conn.disconnect_client = MagicMock()
+
+        proxy.clients.add(
+            ConnectionName.ALARM,
+            1,
+            alarm_conn,
+            ConnectionStatus.CONNECTED,
+            ConnectionPriority.ALARM,
+        )
+
+        await cm.stop()
+
+        alarm_conn.send_message.assert_awaited_once()
+        sent_msg = alarm_conn.send_message.call_args.args[0]
+        self.assertEqual(
+            sent_msg.message.data,
+            bytes.fromhex(ManagedMessages.DISCONNECT_MESSAGE),
+        )
+        self.assertEqual(sent_msg.message.account_id, "0")
+        alarm_conn.disconnect_client.assert_called_once_with(1)
+
     async def test_watchdog_uses_monotonic_clock_and_fires_disconnect(self):
         """Watchdog must trigger REQUEST_DISCONNECT after inactive_period using monotonic time."""
         loop = asyncio.get_running_loop()

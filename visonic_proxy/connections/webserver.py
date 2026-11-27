@@ -27,6 +27,21 @@ urllib3.disable_warnings()
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
+MAX_PANEL_KA_TIME = 10
+_STRIP_RESPONSE_HEADERS = frozenset(
+    {"content-length", "content-encoding", "transfer-encoding", "connection"}
+)
+
+
+def _copy_safe_headers(upstream_headers: dict, content_length: int) -> HttpHeaders:
+    """Copy upstream HTTP headers while stripping encoding/hop-by-hop headers."""
+    headers = HttpHeaders()
+    for k, v in upstream_headers.items():
+        if k.lower() not in _STRIP_RESPONSE_HEADERS:
+            headers.add(k, v)
+    headers.add("Content-Length", content_length)
+    return headers
+
 
 class Connect:
     """Class to hold request connect."""
@@ -102,23 +117,40 @@ class MyHandler:
                                     "params": {"port": self.proxy.config.MESSAGE_PORT},
                                 }
                             ],
-                            "ka_time": 10,
+                            "ka_time": MAX_PANEL_KA_TIME,
                             "version": 3,
                         }
                         resp = bytes(f"{json.dumps(resp_dict)}\n", "ascii")
-                    elif has_connect_cmd and isinstance(response, dict):
-                        # Alarm is already connected to proxy; strip 'connect' command so
-                        # the panel does not open a duplicate TCP connection.
-                        filtered_cmds = [
-                            cmd
-                            for cmd in response.get("cmds", [])
-                            if cmd.get("name") != "connect"
-                        ]
-                        if filtered_cmds:
-                            response["cmds"] = filtered_cmds
-                        else:
-                            response.pop("cmds", None)
-                        resp = bytes(f"{json.dumps(response)}\n", "ascii")
+                    elif isinstance(response, dict) and response:
+                        modified = False
+                        if has_connect_cmd:
+                            # Alarm is already connected to proxy; strip 'connect' command so
+                            # the panel does not open a duplicate TCP connection.
+                            filtered_cmds = [
+                                cmd
+                                for cmd in response.get("cmds", [])
+                                if cmd.get("name") != "connect"
+                            ]
+                            if filtered_cmds:
+                                response["cmds"] = filtered_cmds
+                            else:
+                                response.pop("cmds", None)
+                            modified = True
+
+                        # Keep panel HTTPS polling responsive so restarts reconnect quickly
+                        ka_time = response.get("ka_time")
+                        if (
+                            isinstance(ka_time, (int, float))
+                            and ka_time > MAX_PANEL_KA_TIME
+                        ):
+                            response["ka_time"] = MAX_PANEL_KA_TIME
+                            modified = True
+
+                        resp = (
+                            bytes(f"{json.dumps(response)}\n", "ascii")
+                            if modified
+                            else res.content
+                        )
                     else:
                         resp = res.content
 
@@ -128,17 +160,7 @@ class MyHandler:
                         extra=MsgLogLevel.L5,
                     )
 
-                    headers = HttpHeaders()
-                    has_content_length = False
-                    for k, v in res.headers.items():
-                        if k.lower() == "content-length":
-                            # Adjust content length if we modified the payload
-                            headers.add(k, len(resp))
-                            has_content_length = True
-                        else:
-                            headers.add(k, v)
-                    if not has_content_length:
-                        headers.add("Content-Length", len(resp))
+                    headers = _copy_safe_headers(res.headers, len(resp))
                     return HttpResponse(200, headers, resp)
                 return await self.send_man_response()
 
@@ -151,9 +173,7 @@ class MyHandler:
                 if request.path == "/scripts/pir_film.php":
                     await self.decode_image(request.body)
 
-                headers = HttpHeaders()
-                for k, v in res.headers.items():
-                    headers.add(k, v)
+                headers = _copy_safe_headers(res.headers, len(res.content))
                 return HttpResponse(res.status_code, headers, res.content)
 
     @staticmethod

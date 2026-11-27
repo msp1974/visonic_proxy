@@ -139,6 +139,21 @@ class TestWebserver(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(res)
         self.assertGreaterEqual(ticks, 3)
 
+    async def test_caps_ka_time_and_strips_encoding_headers(self):
+        """Long PowerManage ka_time must be capped to 10s and gzip/chunked headers stripped."""
+        Connect.request_connect = False
+        upstream = FakeResponse({"ka_time": 300, "version": 3})
+        upstream.headers["Content-Encoding"] = "gzip"
+        upstream.headers["Transfer-Encoding"] = "chunked"
+        self.handler._sync_forward_request = MagicMock(return_value=upstream)
+
+        resp = await self.handler.default(self._make_update_request())
+        body = json.loads(resp.body.decode("ascii"))
+        self.assertEqual(body["ka_time"], 10)
+        self.assertIsNone(resp.headers.get("Content-Encoding"))
+        self.assertIsNone(resp.headers.get("Transfer-Encoding"))
+        self.assertEqual(int(resp.headers.get("Content-Length")), len(resp.body))
+
 
 if __name__ == "__main__":
     unittest.main()

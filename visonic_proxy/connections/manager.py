@@ -12,6 +12,7 @@ from ..const import (
     ConnectionName,
     ConnectionPriority,
     ConnectionStatus,
+    ManagedMessages,
     Mode,
     MsgLogLevel,
 )
@@ -19,6 +20,7 @@ from ..events import ALL_CLIENTS, Event, EventType
 from ..managers.flow_manager import FlowManager
 from ..message import QueuedMessage
 from ..proxy import Proxy
+from ..transcoders.builder import MessageBuilder
 from .client import ClientConnection
 from .server import ServerConnection
 from .webserver import Webserver
@@ -112,10 +114,68 @@ class ConnectionManager:
         self.status = ConnectionCoordinatorStatus.RUNNING
         _LOGGER.info("Connection Manager started")
 
+    async def _send_graceful_alarm_disconnect(self) -> None:
+        """Send PowerLink 3.1 DISCONNECT_MESSAGE to connected panels before closing TCP."""
+        alarm_clients = [
+            client
+            for client in self.proxy.clients.get_clients(ConnectionName.ALARM)
+            if client.status == ConnectionStatus.CONNECTED
+        ]
+        if not alarm_clients:
+            return
+
+        builder = MessageBuilder(self.proxy)
+        disconnect_payload = bytes.fromhex(ManagedMessages.DISCONNECT_MESSAGE)
+        sent_any = False
+
+        for client in alarm_clients:
+            try:
+                if self.proxy.config.ENABLE_MSG_ID_TRANSLATION:
+                    msg_id = self.flow_manager.message_id_mapper.next_alarm_msg_id()
+                else:
+                    msg_id = self.proxy.message_tracker.get_next_message_id()
+
+                pl_msg = builder.build_powerlink31_message(
+                    msg_id=msg_id,
+                    message=disconnect_payload,
+                    is_ack=False,
+                    account_id="0",
+                )
+                queued = QueuedMessage(
+                    source=ConnectionName.CM,
+                    source_client_id=0,
+                    destination=ConnectionName.ALARM,
+                    destination_client_id=client.id,
+                    message=pl_msg,
+                    q_id=0,
+                    requires_ack=False,
+                )
+                await client.connection.send_message(queued)
+                sent_any = True
+                _LOGGER.info(
+                    "Sent graceful DISCONNECT_MESSAGE to %s %s before shutdown",
+                    ConnectionName.ALARM,
+                    client.id,
+                    extra=MsgLogLevel.L1,
+                )
+            except Exception as ex:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Failed to send graceful DISCONNECT_MESSAGE to %s %s: %s",
+                    ConnectionName.ALARM,
+                    client.id,
+                    ex,
+                )
+
+        if sent_any:
+            await asyncio.sleep(0.5)
+
     async def stop(self):
         """Shutdown all connections and terminate."""
         self.status = ConnectionCoordinatorStatus.CLOSING
         _LOGGER.info("Stopping Connection Manager")
+
+        # Notify connected alarm panel(s) cleanly so PowerLink 3.1 resumes HTTPS polling
+        await self._send_graceful_alarm_disconnect()
 
         # Unsubscribe all events
         if self.unsubscribe_events:
