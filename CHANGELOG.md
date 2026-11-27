@@ -4,6 +4,12 @@ All notable changes to this fork of `visonic_proxy` are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-11-27
+
+### Fixed
+- Send proxy status telemetry (`0d e0`) to `ALARM_MONITOR` with `requires_ack=False` so it never deadlocks the shared `FlowManager` send queue waiting for a Home Assistant ACK while Alarm responses are pending.
+- Clear `FlowManager.ack_awaiter` and release `rts` immediately when the client being awaited disconnects.
+
 ## [1.3.2] - 2026-11-27
 
 ### Fixed

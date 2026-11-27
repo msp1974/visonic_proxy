@@ -164,6 +164,9 @@ class CommandManager:
                 bytes.fromhex(" ".join(status_msg))
             )
 
+            # Status telemetry (e0) must never block the shared send queue waiting for an
+            # Alarm Monitor ACK, otherwise Alarm responses (e.g. during download mode) get
+            # deadlocked behind e0 until the monitor times out.
             await self.cb_send_message(
                 message=RoutableMessage(
                     source=ConnectionName.CM,
@@ -172,7 +175,7 @@ class CommandManager:
                     destination_client_id=0,
                     message=msg,
                 ),
-                requires_ack=self.proxy.config.ALARM_MONITOR_SENDS_ACKS,
+                requires_ack=False,
             )
 
     async def do_action_command(self, message: RoutableMessage):

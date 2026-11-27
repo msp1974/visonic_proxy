@@ -359,6 +359,34 @@ class TestSocketModeConcurrency(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(cm_acks), 0)
 
+    async def test_e0_status_message_does_not_block_alarm_responses_to_hass(self):
+        """CM e0 status telemetry must not block the send queue waiting for a HASS ACK."""
+        self.proxy.config.SEND_E0_MESSAGES = True
+        self.proxy.config.ALARM_MONITOR_SENDS_ACKS = True
+        self.proxy.status.disconnected_mode = True
+        self.proxy.clients.remove(ConnectionName.VISONIC, 1)
+
+        # Queue a CM status message (e0) to HASS (no ACK will be sent by HASS)
+        await self.flow.message_router.command_manager.send_status_message()
+        await asyncio.sleep(0.03)
+        self.assertIsNone(self.flow.ack_awaiter)
+        self.assertTrue(self.flow.is_rts)
+
+        # Immediately send an Alarm response (e.g. 0d 25 ...); it must not stall behind e0
+        alarm_reply = self._pl31_bytes(
+            6, "0d 25 03 00 02 00 00 00 00 00 00 00 d5 0a", is_ack=False
+        )
+        self.flow.data_received(ConnectionName.ALARM, 1, alarm_reply)
+        await asyncio.sleep(0.05)
+
+        self.assertIsNone(self.flow.ack_awaiter)
+        self.assertTrue(self.flow.is_rts)
+        hass_msgs = [
+            m for m in self.sent if m.destination == ConnectionName.ALARM_MONITOR
+        ]
+        self.assertTrue(any(m.message.message_class == "e0" for m in hass_msgs))
+        self.assertTrue(any(m.message.message_class == "25" for m in hass_msgs))
+
 
 if __name__ == "__main__":
     unittest.main()

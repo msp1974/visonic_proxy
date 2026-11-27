@@ -492,6 +492,15 @@ class ConnectionManager:
         if not self.flow_manager.pending_has_connected.is_set():
             self.flow_manager.pending_has_connected.set()
 
+        # Release send queue if it was awaiting an ACK from the client that just disconnected
+        if (
+            self.flow_manager.ack_awaiter
+            and self.flow_manager.ack_awaiter.source == event.name
+            and self.flow_manager.ack_awaiter.source_client_id == event.client_id
+        ):
+            self.flow_manager.ack_awaiter = None
+            self.flow_manager.release_send_queue()
+
         # Send status message to Alarm Monitor
         if (
             self.proxy.config.SEND_E0_MESSAGES
