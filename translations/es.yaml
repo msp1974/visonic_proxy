@@ -1,0 +1,48 @@
+configuration:
+  visonic_host:
+    name: Servidor Visonic PowerManage
+    description: >-
+      IP o dominio del servidor PowerManage de Visonic al que el proxy reenvía
+      el tráfico para mantener operativa la app móvil.
+  websocket:
+    name: Modo WebSocket (integración visonic_powerlink — puerto 8082)
+    description: >-
+      Activa esta sección solo si utilizas la integración msp1974/visonic_powerlink
+      (puerto 8082). Si utilizas davesmeghead/visonic en modo Socket TCP
+      (puerto 5002), mantén "Activar modo WebSocket" desactivado.
+    fields:
+      enabled:
+        name: Activar modo WebSocket
+        description: >-
+          Activado = expone WebSocket en el puerto 8082 (visonic_powerlink).
+          Desactivado = expone Socket TCP en el puerto 5002 (davesmeghead/visonic).
+      ssl:
+        name: Cifrar WebSocket con TLS/SSL
+        description: >-
+          Habilita TLS/SSL en el puerto 8082 usando los certificados en /data/certs.
+          Solo aplica si el modo WebSocket está activado.
+      auth_key:
+        name: Token de autenticación WebSocket (Bearer)
+        description: >-
+          Clave secreta opcional para exigir cabecera Authorization: Bearer en el
+          puerto 8082. Recomendado si el modo WebSocket está activado.
+  message_log_level:
+    name: Nivel de detalle de mensajes (1–5)
+    description: >-
+      1 = conexiones/desconexiones; 2 = mensajes enviados; 3 = ACKs;
+      4 = mensajes recibidos; 5 = depuración completa de tramas.
+  log_level:
+    name: Nivel de registro (log)
+    description: >-
+      Verbosidad general del Add-on (info recomendado para uso normal;
+      debug para diagnóstico).
+
+network:
+  5001/tcp: >-
+    Panel Visonic (PowerLink 3.1 TCP) — solo para la alarma, no usar en la integración HA
+  5002/tcp: >-
+    Home Assistant: integración davesmeghead/visonic (Socket TCP — requiere modo WebSocket desactivado)
+  8082/tcp: >-
+    Home Assistant: integración msp1974/visonic_powerlink (WebSocket — requiere modo WebSocket activado)
+  8443/tcp: >-
+    Panel Visonic (HTTPS / cámaras PIR) — solo para la alarma, no usar en la integración HA

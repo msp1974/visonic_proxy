@@ -94,6 +94,30 @@ class TestConfigAndStartupP0(unittest.TestCase):
         self.assertEqual(Config.MESSAGE_PORT, orig_port)
         self.assertEqual(Config.WEBSOCKET_MODE, orig_ws_mode)
 
+    def test_process_env_vars_supports_nested_websocket_section(self):
+        """Nested websocket: {enabled, ssl, auth_key} in options.json must map to Config."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            options_file = Path(tmpdir) / "options.json"
+            options_file.write_text(
+                json.dumps(
+                    {
+                        "visonic_host": "10.0.0.8",
+                        "websocket": {
+                            "enabled": False,
+                            "ssl": True,
+                            "auth_key": "nested-secret",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = process_env_vars(options_path=str(options_file))
+
+        self.assertEqual(cfg.VISONIC_HOST, "10.0.0.8")
+        self.assertFalse(cfg.WEBSOCKET_MODE)
+        self.assertTrue(cfg.WEBSOCKET_SSL)
+        self.assertEqual(cfg.WEBSOCKET_AUTH_KEY, "nested-secret")
+
     def test_redact_config_value_masks_secret(self):
         """Sensitive config values must be redacted for logging."""
         self.assertEqual(

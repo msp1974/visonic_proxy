@@ -1,6 +1,6 @@
 name: "Visonic Proxy"
 description: "Visonic Proxy Server for Using Powerlink with Visonic Integration"
-version: "1.2.0"
+version: "1.3.0"
 slug: "visonic_proxy"
 url: https://github.com/ShaneGooseman/visonic_proxy
 init: false
@@ -15,25 +15,27 @@ ports:
   8082/tcp: 8082
   8443/tcp: 8443
 ports_description:
-  5001/tcp: Alarm connection
-  5002/tcp: Monitor socket connection
-  8082/tcp: Websocket connection (if enabled)
-  8443/tcp: Alarm web connection
+  5001/tcp: "Visonic alarm panel (PowerLink 3.1 TCP) — panel only"
+  5002/tcp: "Home Assistant davesmeghead/visonic (Socket TCP, requires websocket.enabled: false)"
+  8082/tcp: "Home Assistant visonic_powerlink (WebSocket, requires websocket.enabled: true)"
+  8443/tcp: "Visonic alarm panel (HTTPS / PIR cameras) — panel only"
 map:
   - addon_config:rw
 options:
   visonic_host: "52.58.105.181"
-  websocket_mode: true
-  websocket_ssl: false
-  websocket_auth_key: ""
+  websocket:
+    enabled: true
+    ssl: false
+    auth_key: ""
   message_log_level: 1
   log_level: "info"
-  
+
 schema:
   visonic_host: str
-  websocket_mode: bool
-  websocket_ssl: bool
-  websocket_auth_key: password?
+  websocket:
+    enabled: bool
+    ssl: bool
+    auth_key: password?
   message_log_level: "int(1,5)"
   log_level: list(debug|info|warning|error|critical)?
   

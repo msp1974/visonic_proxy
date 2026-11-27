@@ -1,0 +1,48 @@
+configuration:
+  visonic_host:
+    name: Visonic PowerManage Server
+    description: >-
+      IP address or hostname of the upstream Visonic PowerManage server used to
+      keep the Visonic mobile app working alongside Home Assistant.
+  websocket:
+    name: WebSocket Mode (visonic_powerlink integration — port 8082)
+    description: >-
+      Enable this section only when using the msp1974/visonic_powerlink
+      integration (port 8082). If you use davesmeghead/visonic in Socket TCP
+      mode (port 5002), keep "Enable WebSocket mode" turned off.
+    fields:
+      enabled:
+        name: Enable WebSocket mode
+        description: >-
+          On = listen on WebSocket port 8082 (visonic_powerlink).
+          Off = listen on TCP Socket port 5002 (davesmeghead/visonic).
+      ssl:
+        name: Enable TLS/SSL on WebSocket
+        description: >-
+          Encrypt WebSocket traffic on port 8082 using certificates stored in
+          /data/certs. Only applies when WebSocket mode is enabled.
+      auth_key:
+        name: WebSocket Bearer auth token
+        description: >-
+          Optional secret token required in the Authorization: Bearer header on
+          port 8082. Recommended when WebSocket mode is enabled.
+  message_log_level:
+    name: Message log detail level (1–5)
+    description: >-
+      1 = connections/disconnections; 2 = sent messages; 3 = ACKs;
+      4 = received messages; 5 = full protocol frame debug.
+  log_level:
+    name: General log level
+    description: >-
+      Overall add-on logging verbosity (info recommended for normal use;
+      debug for troubleshooting).
+
+network:
+  5001/tcp: >-
+    Visonic alarm panel (PowerLink 3.1 TCP) — panel only, do not use in HA integration
+  5002/tcp: >-
+    Home Assistant: davesmeghead/visonic integration (Socket TCP — requires WebSocket mode off)
+  8082/tcp: >-
+    Home Assistant: msp1974/visonic_powerlink integration (WebSocket — requires WebSocket mode on)
+  8443/tcp: >-
+    Visonic alarm panel (HTTPS / PIR cameras) — panel only, do not use in HA integration

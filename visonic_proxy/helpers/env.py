@@ -114,6 +114,17 @@ def process_env_vars(
     addon_options = load_addon_options(options_path) if options_path else {}
     addon_options_folded = {k.casefold(): v for k, v in addon_options.items()}
 
+    # Support nested `websocket: {enabled, ssl, auth_key}` add-on schema
+    ws_section = addon_options_folded.get("websocket")
+    if isinstance(ws_section, dict):
+        ws_folded = {k.casefold(): v for k, v in ws_section.items()}
+        if "enabled" in ws_folded:
+            addon_options_folded["websocket_mode"] = ws_folded["enabled"]
+        if "ssl" in ws_folded:
+            addon_options_folded["websocket_ssl"] = ws_folded["ssl"]
+        if "auth_key" in ws_folded:
+            addon_options_folded["websocket_auth_key"] = ws_folded["auth_key"]
+
     for key, default_value in config_attrs:
         source = None
         raw_value: Any = None

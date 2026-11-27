@@ -2,6 +2,14 @@
 
 All notable changes to this fork of `visonic_proxy` are documented in this file.
 
+## [1.3.0] - 2026-11-27
+
+### Added
+- Native Home Assistant add-on translations (`translations/es.yaml`, `translations/en.yaml`) and in-UI documentation (`DOCS.md`) clarifying each port and integration mode.
+
+### Changed
+- Grouped WebSocket add-on options under nested `websocket: {enabled, ssl, auth_key}` in `config.yaml` and `run.sh` (with backwards-compatible parsing in `helpers/env.py` for flat options/env vars) and clarified `ports_description`.
+
 ## [1.2.0] - 2026-11-27
 
 ### Added
