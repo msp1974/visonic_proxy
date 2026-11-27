@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to this fork of `visonic_proxy` are documented in this file.
+All notable changes to `visonic_proxy` are documented in this file.
 
 ## [Unreleased]
 

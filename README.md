@@ -1,12 +1,5 @@
 # Visonic Proxy
 
-> **Fork Notice & Attribution:** This repository is a fork of [msp1974/visonic_proxy](https://github.com/msp1974/visonic_proxy), originally created and authored by **Mark Parker (`@msp1974`)**.  
-> Original copyright and license notices (MIT as declared in `setup.py`; Apache License 2.0 in `build.yaml` and `visonic_proxy/connections/httpserver/`) are preserved.
->
-> **Summary of modifications in this fork:**
-> - Improved concurrency between the Visonic mobile app (PowerManage) and Home Assistant, hardened add-on configuration/security/asyncio stability, modularized WebSocket client code, and added automated tests + CI.
-> - See [CHANGELOG.md](CHANGELOG.md) for the full list of changes.
-
 A proxy for Visonic Alarms to allow panels with Powerlink 3.1 modules to be able to work with HomeAssistant and the Visonic apps at the same time.
 
 It is supported by the following HA integrations.
@@ -27,7 +20,7 @@ It has a socket mode or websocket mode which can be configured in the addon conf
 
 ### Run as a HA addon
 
-Add the repository to your list of repositories - https://github.com/ShaneGooseman/visonic_proxy
+Add the repository to your list of repositories - https://github.com/msp1974/visonic_proxy
 
 Refresh the list of addons
 
