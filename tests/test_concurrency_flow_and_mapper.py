@@ -387,6 +387,43 @@ class TestSocketModeConcurrency(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(m.message.message_class == "e0" for m in hass_msgs))
         self.assertTrue(any(m.message.message_class == "25" for m in hass_msgs))
 
+    async def test_consecutive_alarm_ack_timeouts_trigger_disconnect(self):
+        """Three consecutive ACK timeouts from Alarm must disconnect the stale socket."""
+        disconnect_events: list[Event] = []
+
+        async def _on_disconnect(event: Event):
+            disconnect_events.append(event)
+
+        unsub = self.proxy.events.subscribe(
+            ConnectionName.ALARM, EventType.REQUEST_DISCONNECT, _on_disconnect
+        )
+        try:
+            for msg_id in (117, 118):
+                await self.flow.ack_timeout(
+                    Event(
+                        ConnectionName.ALARM,
+                        EventType.ACK_TIMEOUT,
+                        1,
+                        event_data={"msg_id": msg_id},
+                    )
+                )
+            await asyncio.sleep(0.01)
+            self.assertEqual(len(disconnect_events), 0)
+
+            await self.flow.ack_timeout(
+                Event(
+                    ConnectionName.ALARM,
+                    EventType.ACK_TIMEOUT,
+                    1,
+                    event_data={"msg_id": 119},
+                )
+            )
+            await asyncio.sleep(0.01)
+            self.assertEqual(len(disconnect_events), 1)
+            self.assertEqual(disconnect_events[0].client_id, 1)
+        finally:
+            unsub()
+
 
 if __name__ == "__main__":
     unittest.main()

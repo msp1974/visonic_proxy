@@ -103,6 +103,7 @@ class FlowManager:
         self.active_alarm_owner: ConnectionName | None = None
         self.active_alarm_owner_until: float = 0.0
         self._rx_buffers: dict[tuple[ConnectionName, int | str], bytearray] = {}
+        self._consecutive_ack_timeouts: dict[tuple[ConnectionName, int | str], int] = {}
         self._pl31_decoder = PowerLink31MessageDecoder()
 
         self._unsubscribe_listeners: list[Callable] = []
@@ -173,6 +174,7 @@ class FlowManager:
     def clear_rx_buffer(self, source: ConnectionName, client_id: int | str):
         """Discard buffered partial TCP bytes for a disconnected client."""
         self._rx_buffers.pop((source, client_id), None)
+        self._consecutive_ack_timeouts.pop((source, client_id), None)
 
     def _extract_pl31_frames(
         self, source: ConnectionName, client_id: int | str, data: bytes
@@ -264,9 +266,10 @@ class FlowManager:
                     )
                     continue
 
-                # Update client last received
+                # Update client last received and reset consecutive ACK timeout counter
                 connection_info.last_received = dt.datetime.now()
                 self.proxy.clients.update(source, client_id, connection_info)
+                self._consecutive_ack_timeouts.pop((source, client_id), None)
 
                 decoded_messages: list[PowerLink31Message | NonPowerLink31Message] = []
 
@@ -808,3 +811,23 @@ class FlowManager:
         )
         self.ack_awaiter = None
         self.release_send_queue()
+
+        if event.name == ConnectionName.ALARM and event.client_id is not None:
+            key = (event.name, event.client_id)
+            count = self._consecutive_ack_timeouts.get(key, 0) + 1
+            self._consecutive_ack_timeouts[key] = count
+            if count >= 3:
+                _LOGGER.warning(
+                    "Alarm %s failed to ACK %s consecutive messages; disconnecting stale connection",
+                    event.client_id,
+                    count,
+                    extra=MsgLogLevel.L1,
+                )
+                self._consecutive_ack_timeouts.pop(key, None)
+                self.proxy.events.fire_event(
+                    Event(
+                        name=ConnectionName.ALARM,
+                        event_type=EventType.REQUEST_DISCONNECT,
+                        client_id=event.client_id,
+                    )
+                )

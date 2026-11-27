@@ -4,6 +4,11 @@ All notable changes to this fork of `visonic_proxy` are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-11-27
+
+### Fixed
+- Disconnect stale/half-open `Alarm` TCP connections after 3 consecutive `ACK_TIMEOUT`s so `WebServer` re-enables `"connect"` on `/scripts/update.php` and the panel reconnects automatically within seconds instead of stalling for 120 s.
+
 ## [1.3.3] - 2026-11-27
 
 ### Fixed
