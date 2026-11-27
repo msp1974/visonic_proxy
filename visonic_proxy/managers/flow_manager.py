@@ -673,6 +673,9 @@ class FlowManager:
                         msg_id,
                         queued_message.message.data,
                         queued_message.message.msg_type == VIS_ACK,
+                        account_id="0"
+                        if queued_message.destination == ConnectionName.ALARM
+                        else None,
                     )
                 elif (
                     isinstance(queued_message.message, PowerLink31Message)

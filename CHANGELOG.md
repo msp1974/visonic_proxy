@@ -2,6 +2,14 @@
 
 All notable changes to this fork of `visonic_proxy` are documented in this file.
 
+## [Unreleased]
+
+## [1.3.2] - 2026-11-27
+
+### Fixed
+- Forward initial Alarm frames (such as `HELLO` `0d 06 f9 0a`) to `VISONIC` even while the Visonic client is still in `CONNECTING` state so `FlowManager` holds and delivers them once the TCP handshake completes, preventing 60 s PowerManage disconnect loops on restart.
+- Set `account_id="0"` on `NonPowerLink31Message` frames sent to `Alarm` (`CM`/`HASS` → `Alarm`) to match the PowerLink 3.1 protocol.
+
 ## [1.3.1] - 2026-11-27
 
 ### Fixed

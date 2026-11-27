@@ -207,15 +207,25 @@ class MessageRouter:
             and message.message.msg_type == VIS_BBA
         )
 
-        if not self.proxy.status.disconnected_mode and not is_ha_or_cm_owned:
+        # Treat a Visonic client that is already CONNECTING as active so initial
+        # Alarm frames (especially HELLO 0d 06 f9 0a) are queued and delivered
+        # once the TCP handshake completes, instead of being swallowed locally.
+        visonic_client = self.proxy.clients.get_client(
+            ConnectionName.VISONIC, message.source_client_id
+        )
+        visonic_available = (
+            not self.proxy.status.disconnected_mode or visonic_client is not None
+        )
+
+        if visonic_available and not is_ha_or_cm_owned:
             await self.forward_message(
                 ConnectionName.VISONIC, message.source_client_id, message
             )
 
-        # Does CM send an ACK? Required when Visonic is disconnected or when
+        # Does CM send an ACK? Required when no Visonic link is available or when
         # the response was isolated from Visonic for HA/CM.
         if (
-            self.proxy.status.disconnected_mode or is_ha_or_cm_owned
+            not visonic_available or is_ha_or_cm_owned
         ) and message.message.msg_type == VIS_BBA:
             await self.command_manager.send_ack_message(message)
 

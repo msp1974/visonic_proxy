@@ -326,6 +326,39 @@ class TestSocketModeConcurrency(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(first)
         self.assertEqual(first.id, 2)
 
+    async def test_alarm_hello_forwarded_when_visonic_is_still_connecting(self):
+        """Initial Alarm HELLO arriving while Visonic is CONNECTING must be queued and delivered."""
+        self.proxy.status.disconnected_mode = True
+        self.proxy.clients.update_status(
+            ConnectionName.VISONIC, 1, ConnectionStatus.CONNECTING
+        )
+
+        # Alarm sends HELLO before Visonic TCP handshake completes
+        hello = self._pl31_bytes(9906, ManagedMessages.HELLO, is_ack=False)
+        self.flow.data_received(ConnectionName.ALARM, 1, hello)
+        await asyncio.sleep(0.03)
+
+        # Simulate Visonic completing TCP handshake 30ms later
+        self.proxy.clients.update_status(
+            ConnectionName.VISONIC, 1, ConnectionStatus.CONNECTED
+        )
+        self.proxy.status.disconnected_mode = False
+        self.flow.pending_has_connected.set()
+        await asyncio.sleep(0.05)
+
+        visonic_msgs = [m for m in self.sent if m.destination == ConnectionName.VISONIC]
+        self.assertEqual(len(visonic_msgs), 1)
+        self.assertEqual(
+            visonic_msgs[0].message.data, bytes.fromhex(ManagedMessages.HELLO)
+        )
+        # CM must NOT have spoofed a local VIS-ACK for HELLO while Visonic was connecting
+        cm_acks = [
+            m
+            for m in self.sent
+            if m.source == ConnectionName.CM and m.destination == ConnectionName.ALARM
+        ]
+        self.assertEqual(len(cm_acks), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
